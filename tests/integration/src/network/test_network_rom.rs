@@ -12,6 +12,15 @@ mod test {
     use mcu_hw_model::McuHwModel;
     use std::sync::{Arc, Mutex};
 
+    /// TAP network interface used by all network tests
+    const TAP_INTERFACE: &str = "tap0";
+    /// IPv4 address assigned to the TAP interface (host side)
+    const TAP_IP_ADDR: &str = "192.168.100.1";
+    /// TFTP boot filename served by dnsmasq in download tests
+    const TFTP_BOOT_FILENAME: &str = "pattern.bin";
+    /// Size in bytes of the TFTP pattern file (byte[i] = i & 0xFF)
+    const TFTP_PATTERN_FILE_SIZE: u32 = 4096;
+
     #[test]
     #[cfg_attr(feature = "fpga_realtime", ignore)]
     fn test_network_cpu_rom_start() {
@@ -74,9 +83,9 @@ mod test {
             return;
         }
 
-        if !tap::interface_exists("tap0") {
-            println!("TAP interface tap0 not found, setting up...");
-            if let Err(e) = tap::setup("tap0", "192.168.100.1", true) {
+        if !tap::interface_exists(TAP_INTERFACE) {
+            println!("TAP interface {} not found, setting up...", TAP_INTERFACE);
+            if let Err(e) = tap::setup(TAP_INTERFACE, TAP_IP_ADDR, true) {
                 eprintln!("Failed to set up TAP interface: {}", e);
                 return;
             }
@@ -96,7 +105,7 @@ mod test {
         // Start dnsmasq (DHCP only, no TFTP needed)
         println!("Starting dnsmasq server...");
         let server_options = ServerOptions {
-            interface: "tap0".to_string(),
+            interface: TAP_INTERFACE.to_string(),
             enable_tftp: false,
             tftp_root: None,
             boot_file: String::new(),
@@ -110,7 +119,7 @@ mod test {
         println!("dnsmasq started successfully");
 
         // Create TAP device for the hardware model
-        let tap_device = match LinuxTapDevice::open("tap0") {
+        let tap_device = match LinuxTapDevice::open(TAP_INTERFACE) {
             Ok(tap) => Arc::new(Mutex::new(
                 Box::new(tap) as Box<dyn emulator_periph::TapDevice>
             )),
@@ -202,9 +211,9 @@ mod test {
             return;
         }
 
-        if !tap::interface_exists("tap0") {
-            println!("TAP interface tap0 not found, setting up...");
-            if let Err(e) = tap::setup("tap0", "192.168.100.1", true) {
+        if !tap::interface_exists(TAP_INTERFACE) {
+            println!("TAP interface {} not found, setting up...", TAP_INTERFACE);
+            if let Err(e) = tap::setup(TAP_INTERFACE, TAP_IP_ADDR, true) {
                 eprintln!("Failed to set up TAP interface: {}", e);
                 return;
             }
@@ -224,7 +233,7 @@ mod test {
         // Start dnsmasq (DHCP only, no TFTP needed)
         println!("Starting dnsmasq server...");
         let server_options = ServerOptions {
-            interface: "tap0".to_string(),
+            interface: TAP_INTERFACE.to_string(),
             enable_tftp: false,
             tftp_root: None,
             boot_file: String::new(),
@@ -238,7 +247,7 @@ mod test {
         println!("dnsmasq started successfully");
 
         // Create TAP device for the hardware model
-        let tap_device = match LinuxTapDevice::open("tap0") {
+        let tap_device = match LinuxTapDevice::open(TAP_INTERFACE) {
             Ok(tap) => Arc::new(Mutex::new(
                 Box::new(tap) as Box<dyn emulator_periph::TapDevice>
             )),
@@ -328,9 +337,9 @@ mod test {
             return;
         }
 
-        if !tap::interface_exists("tap0") {
-            println!("TAP interface tap0 not found, setting up...");
-            if let Err(e) = tap::setup("tap0", "192.168.100.1", true) {
+        if !tap::interface_exists(TAP_INTERFACE) {
+            println!("TAP interface {} not found, setting up...", TAP_INTERFACE);
+            if let Err(e) = tap::setup(TAP_INTERFACE, TAP_IP_ADDR, true) {
                 eprintln!("Failed to set up TAP interface: {}", e);
                 return;
             }
@@ -350,7 +359,7 @@ mod test {
         // Start dnsmasq with IPv6 SLAAC + stateless DHCPv6 mode
         println!("Starting dnsmasq server with IPv6 SLAAC...");
         let server_options = ServerOptions {
-            interface: "tap0".to_string(),
+            interface: TAP_INTERFACE.to_string(),
             enable_tftp: false,
             tftp_root: None,
             boot_file: String::new(),
@@ -366,7 +375,7 @@ mod test {
         println!("dnsmasq started successfully with IPv6 SLAAC + stateless DHCPv6");
 
         // Create TAP device for the hardware model
-        let tap_device = match LinuxTapDevice::open("tap0") {
+        let tap_device = match LinuxTapDevice::open(TAP_INTERFACE) {
             Ok(tap) => Arc::new(Mutex::new(
                 Box::new(tap) as Box<dyn emulator_periph::TapDevice>
             )),
@@ -457,9 +466,9 @@ mod test {
             return;
         }
 
-        if !tap::interface_exists("tap0") {
-            println!("TAP interface tap0 not found, setting up...");
-            if let Err(e) = tap::setup("tap0", "192.168.100.1", true) {
+        if !tap::interface_exists(TAP_INTERFACE) {
+            println!("TAP interface {} not found, setting up...", TAP_INTERFACE);
+            if let Err(e) = tap::setup(TAP_INTERFACE, TAP_IP_ADDR, true) {
                 eprintln!("Failed to set up TAP interface: {}", e);
                 return;
             }
@@ -481,27 +490,28 @@ mod test {
         std::fs::create_dir_all(&tftp_dir).expect("Failed to create TFTP directory");
 
         // Generate the pattern file: byte[i] = (i & 0xFF)
-        let boot_filename = "pattern.bin";
-        let pattern_file = tftp_dir.join(boot_filename);
+        let pattern_file = tftp_dir.join(TFTP_BOOT_FILENAME);
         {
             let mut f =
                 std::fs::File::create(&pattern_file).expect("Failed to create pattern file");
-            let data: Vec<u8> = (0..4096u32).map(|i| (i & 0xFF) as u8).collect();
+            let data: Vec<u8> = (0..TFTP_PATTERN_FILE_SIZE)
+                .map(|i| (i & 0xFF) as u8)
+                .collect();
             f.write_all(&data).expect("Failed to write pattern file");
         }
         println!(
             "Created pattern file: {} ({} bytes)",
             pattern_file.display(),
-            4096
+            TFTP_PATTERN_FILE_SIZE
         );
 
         // Start dnsmasq with DHCP + TFTP enabled
         println!("Starting dnsmasq server with TFTP...");
         let server_options = ServerOptions {
-            interface: "tap0".to_string(),
+            interface: TAP_INTERFACE.to_string(),
             enable_tftp: true,
             tftp_root: Some(tftp_dir.clone()),
-            boot_file: boot_filename.to_string(),
+            boot_file: TFTP_BOOT_FILENAME.to_string(),
             ..Default::default()
         };
 
@@ -513,7 +523,7 @@ mod test {
         println!("dnsmasq started successfully with TFTP");
 
         // Create TAP device for the hardware model
-        let tap_device = match LinuxTapDevice::open("tap0") {
+        let tap_device = match LinuxTapDevice::open(TAP_INTERFACE) {
             Ok(tap) => Arc::new(Mutex::new(
                 Box::new(tap) as Box<dyn emulator_periph::TapDevice>
             )),
@@ -625,9 +635,9 @@ mod test {
             return;
         }
 
-        if !tap::interface_exists("tap0") {
-            println!("TAP interface tap0 not found, setting up...");
-            if let Err(e) = tap::setup("tap0", "192.168.100.1", true) {
+        if !tap::interface_exists(TAP_INTERFACE) {
+            println!("TAP interface {} not found, setting up...", TAP_INTERFACE);
+            if let Err(e) = tap::setup(TAP_INTERFACE, TAP_IP_ADDR, true) {
                 eprintln!("Failed to set up TAP interface: {}", e);
                 return;
             }
@@ -649,27 +659,28 @@ mod test {
         std::fs::create_dir_all(&tftp_dir).expect("Failed to create TFTP directory");
 
         // Generate the pattern file: byte[i] = (i & 0xFF)
-        let boot_filename = "pattern.bin";
-        let pattern_file = tftp_dir.join(boot_filename);
+        let pattern_file = tftp_dir.join(TFTP_BOOT_FILENAME);
         {
             let mut f =
                 std::fs::File::create(&pattern_file).expect("Failed to create pattern file");
-            let data: Vec<u8> = (0..4096u32).map(|i| (i & 0xFF) as u8).collect();
+            let data: Vec<u8> = (0..TFTP_PATTERN_FILE_SIZE)
+                .map(|i| (i & 0xFF) as u8)
+                .collect();
             f.write_all(&data).expect("Failed to write pattern file");
         }
         println!(
             "Created pattern file: {} ({} bytes)",
             pattern_file.display(),
-            4096
+            TFTP_PATTERN_FILE_SIZE
         );
 
         // Start dnsmasq with IPv6 SLAAC + TFTP enabled
         println!("Starting dnsmasq server with IPv6 SLAAC + TFTP...");
         let server_options = ServerOptions {
-            interface: "tap0".to_string(),
+            interface: TAP_INTERFACE.to_string(),
             enable_tftp: true,
             tftp_root: Some(tftp_dir.clone()),
-            boot_file: boot_filename.to_string(),
+            boot_file: TFTP_BOOT_FILENAME.to_string(),
             enable_ipv6: true,
             ipv6_slaac: true,
             ..Default::default()
@@ -683,7 +694,7 @@ mod test {
         println!("dnsmasq started successfully with IPv6 SLAAC + TFTP");
 
         // Create TAP device for the hardware model
-        let tap_device = match LinuxTapDevice::open("tap0") {
+        let tap_device = match LinuxTapDevice::open(TAP_INTERFACE) {
             Ok(tap) => Arc::new(Mutex::new(
                 Box::new(tap) as Box<dyn emulator_periph::TapDevice>
             )),
