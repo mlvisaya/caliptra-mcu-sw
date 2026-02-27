@@ -21,7 +21,6 @@ use core::panic::PanicInfo;
 #[cfg(target_arch = "riscv32")]
 use core::arch::global_asm;
 
-#[cfg(target_arch = "riscv32")]
 use network_drivers::{exit_emulator, println};
 
 // Include the startup assembly code
@@ -40,19 +39,40 @@ pub extern "C" fn main() -> ! {
     println!("=====================================");
     println!();
 
-    // Run the appropriate test based on feature flags
     #[cfg(feature = "test-network-rom-dhcp-discover")]
     {
-        // Create Ethernet driver
         let eth = EthernetDriver::new();
         network_app_rom_test::dhcp_test::run(eth);
+    }
+
+    #[cfg(feature = "test-network-rom-lwip-dhcp")]
+    {
+        let eth = EthernetDriver::new();
+        network_app_rom_test::lwip_dhcp_test::run(eth);
+    }
+
+    #[cfg(feature = "test-network-rom-lwip-dhcp6")]
+    {
+        let eth = EthernetDriver::new();
+        network_app_rom_test::lwip_dhcpv6_test::run(eth);
+    }
+
+    #[cfg(feature = "test-network-rom-lwip-tftp")]
+    {
+        let eth = EthernetDriver::new();
+        network_app_rom_test::lwip_tftp_test::run(eth);
+    }
+
+    #[cfg(feature = "test-network-rom-lwip-tftpv6")]
+    {
+        let eth = EthernetDriver::new();
+        network_app_rom_test::lwip_tftpv6_test::run(eth);
     }
 
     exit_emulator(0x00);
 }
 
 /// Exception handler - called when CPU encounters an exception
-#[cfg(target_arch = "riscv32")]
 #[no_mangle]
 pub extern "C" fn exception_handler() {
     println!("EXCEPTION: Network ROM encountered an error!");
