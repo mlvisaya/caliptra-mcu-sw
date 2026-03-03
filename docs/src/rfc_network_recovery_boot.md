@@ -1,6 +1,9 @@
 # [RFC] Caliptra MCU Network Recovery Boot
 
 ## Abstract
+The Caliptra subsystem network recovery boot is designed for systems that integrate the Caliptra subsystem and use flash as the primary boot source. When both flash partitions are corrupted and no local boot path remains viable, network recovery provides an automated fallback to restore the system to a bootable state — without requiring physical intervention that is costly and impractical in hyperscale data center environments.
+
+This RFC proposes a lightweight network recovery boot mechanism that enables the Caliptra subsystem to download firmware images over the network. The MCU ROM fetches firmware through a generic BootSourceProvider trait that abstracts the underlying boot source — whether flash, network, or USB. For network recovery, a Network Boot Coprocessor is provided as a reference implementation of a network-based boot source provider. The Network Boot Coprocessor runs within a minimal ROM environment and **operates outside the native Caliptra subsystem boundary**. It acts as an intermediary between remote image servers and the Caliptra subsystem, handling network configuration, server discovery, and firmware image downloads for multiple firmware components (Caliptra FMC+RT, SoC Manifest, MCU Runtime, and SoC images) through a firmware ID-based mapping system.
 
 When both flash partitions on a Caliptra subsystem are corrupted, the system currently has no automated recovery path — physical intervention is required, which is costly and impractical in hyperscale data center environments. This RFC proposes a lightweight network recovery boot mechanism that enables the Caliptra subsystem to download firmware images over the network, providing a resilient fallback when flash-based boot fails.
 
