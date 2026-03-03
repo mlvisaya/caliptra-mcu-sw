@@ -19,6 +19,7 @@ use mcu_rom_common::{
 };
 use mcu_testing_common::MCU_RUNNING;
 pub use model_emulated::ModelEmulated;
+pub use network_mgr::NetworkManager;
 use rand::{rngs::StdRng, SeedableRng};
 use sha2::Digest;
 use std::io::Write;
@@ -51,6 +52,7 @@ mod mcu_mgr;
 mod model_emulated;
 #[cfg(feature = "fpga_realtime")]
 mod model_fpga_realtime;
+mod network_mgr;
 mod otp_provision;
 mod vmem;
 
@@ -663,6 +665,8 @@ pub trait McuHwModel {
     fn network_uart_output(&self) -> Option<String> {
         None
     }
+
+    fn network_manager(&mut self) -> impl NetworkManager;
 
     fn warm_reset(&mut self);
 

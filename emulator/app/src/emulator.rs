@@ -830,6 +830,7 @@ impl Emulator {
             None,
             None,
             Some(Box::new(dma_ctrl)),
+            None,
         );
 
         // Set the DMA RAM for Primary Flash Controller
@@ -904,6 +905,7 @@ impl Emulator {
                 tap_device: None,
                 pic: network_pic.clone(),
                 clock: clock.clone(),
+                network_mbox: None,
             };
             let network_root_bus = NetworkRootBus::new(network_bus_args).unwrap();
 
