@@ -10,6 +10,7 @@ pub mod i3c;
 pub mod lc;
 pub mod mbox;
 pub mod mci;
+pub mod network_mbox;
 pub mod otp;
 pub mod primary_flash;
 pub mod root_bus;

@@ -8,6 +8,7 @@ use crate::trace_path_or_env;
 use crate::InitParams;
 use crate::McuHwModel;
 use crate::McuManager;
+use crate::NetworkManager;
 use crate::DEFAULT_LIFECYCLE_RAW_TOKENS;
 use anyhow::bail;
 use anyhow::Result;
@@ -34,6 +35,7 @@ use emulator_caliptra::StartCaliptraArgs;
 use emulator_periph::DummyFlashCtrl;
 use emulator_periph::LcCtrl;
 use emulator_periph::McuRootBusOffsets;
+use emulator_periph::NetworkMailboxInternal;
 use emulator_periph::NetworkRootBus;
 use emulator_periph::{I3c, I3cController, Mci, McuRootBus, McuRootBusArgs, Otp, OtpArgs};
 use emulator_registers_generated::axicdma::AxicdmaPeripheral;
@@ -295,6 +297,7 @@ impl McuHwModel for ModelEmulated {
             None,
             mci_generic_input_wires,
         );
+        let network_mbox = NetworkMailboxInternal::new(&clock.clone());
 
         let delegates: Vec<Box<dyn caliptra_emu_bus::Bus>> =
             vec![Box::new(mcu_root_bus), Box::new(soc_to_caliptra)];
@@ -305,6 +308,7 @@ impl McuHwModel for ModelEmulated {
             Some(Box::new(i3c)),
             Some(Box::new(primary_flash_controller)),
             Some(Box::new(secondary_flash_controller)),
+            Some(Box::new(network_mbox.clone())),
             Some(Box::new(mci)),
             None,
             None,
@@ -384,6 +388,7 @@ impl McuHwModel for ModelEmulated {
                 clock: network_clock.clone(),
                 uart_output: Some(network_uart_output.clone()),
                 tap_device: params.network_tap_device.clone(),
+                network_mbox: Some(network_mbox),
                 ..Default::default()
             };
 
@@ -600,6 +605,10 @@ impl McuHwModel for ModelEmulated {
             .map(|output| String::from_utf8_lossy(&output.borrow()).to_string())
     }
 
+    fn network_manager(&mut self) -> impl NetworkManager {
+        self
+    }
+
     fn warm_reset(&mut self) {
         self.cpu.warm_reset();
         self.step();
@@ -676,6 +685,21 @@ impl SocManager for &mut ModelEmulated {
     const SOC_MBOX_ADDR: u32 = 0x3002_0000;
 
     const MAX_WAIT_CYCLES: u32 = 20_000_000;
+}
+
+impl NetworkManager for &mut ModelEmulated {
+    fn mbox(
+        &mut self,
+    ) -> &mut dyn emulator_registers_generated::network_mbox::NetworkMboxPeripheral {
+        self.cpu
+            .bus
+            .bus
+            .network_mbox_periph
+            .as_mut()
+            .expect("network mailbox is not initialized; check has_network_cpu() first")
+            .periph
+            .as_mut()
+    }
 }
 
 impl Drop for ModelEmulated {
