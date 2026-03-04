@@ -153,7 +153,7 @@ impl Default for NetworkMemoryMap {
             eth_properties: MemoryRegionType::MMIO,
 
             // Network Mailbox for MCU <-> Network communication
-            network_mbox_offset: 0xc000_0000,
+            network_mbox_offset: 0x2000_9000,
             network_mbox_size: 0x20_0028,
             network_mbox_sram_size: 2 * 1024 * 1024,
             network_mbox_properties: MemoryRegionType::MMIO,
@@ -357,7 +357,7 @@ pub const DEFAULT_NETWORK_MEMORY_MAP: NetworkMemoryMap = NetworkMemoryMap {
     eth_size: 0x1000,
     eth_properties: MemoryRegionType::MMIO,
 
-    network_mbox_offset: 0xc000_0000,
+    network_mbox_offset: 0x2000_9000,
     network_mbox_size: 0x20_0028,
     network_mbox_sram_size: 2 * 1024 * 1024,
     network_mbox_properties: MemoryRegionType::MMIO,

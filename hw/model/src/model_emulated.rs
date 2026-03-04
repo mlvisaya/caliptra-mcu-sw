@@ -308,6 +308,7 @@ impl McuHwModel for ModelEmulated {
             Some(Box::new(i3c)),
             Some(Box::new(primary_flash_controller)),
             Some(Box::new(secondary_flash_controller)),
+            Some(Box::new(network_mbox.clone())),
             Some(Box::new(mci)),
             None,
             None,
@@ -317,7 +318,6 @@ impl McuHwModel for ModelEmulated {
             None,
             None,
             Some(Box::new(dma_ctrl)),
-            Some(Box::new(network_mbox.clone())),
         );
 
         let args = CpuArgs {

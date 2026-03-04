@@ -3,5 +3,5 @@
 
 addrmap network {
     ethernet ethernet @ 0x1000_3000;
-    network_mbox_csr network_mbox_csr @ 0xC000_0000;
+    network_mbox_csr network_mbox_csr @ 0x2000_9000;
 };

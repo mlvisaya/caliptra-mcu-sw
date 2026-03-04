@@ -821,6 +821,7 @@ impl Emulator {
             Some(Box::new(i3c)),
             Some(Box::new(primary_flash_controller)),
             Some(Box::new(secondary_flash_controller)),
+            None,
             Some(Box::new(mci)),
             Some(Box::new(doe_mbox)),
             None,
@@ -830,7 +831,6 @@ impl Emulator {
             None,
             None,
             Some(Box::new(dma_ctrl)),
-            None,
         );
 
         // Set the DMA RAM for Primary Flash Controller
