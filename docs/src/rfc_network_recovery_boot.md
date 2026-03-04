@@ -13,14 +13,58 @@ The recovery boot proceeds in two stages:
 
 ### Components Affected
 
-- **MCU ROM**: Drives recovery boot flow using a new generic `BootSourceProvider` trait that abstracts boot sources (network, flash, or custom) behind a unified messaging protocol. Includes optional flash write-back logic for staging and committing network-recovered images to flash.
-- **MCU Runtime**: Handles Stage 2 boot — fetches SoC images, loads them to memory, and coordinates authorization with Caliptra RT. Also implements flash write-back staging and commit for remainder firmware images.
-- **Network Boot Coprocessor (Network ROM)**: New component, operating outside the Caliptra subsystem boundary, that provides a reference implementation of the `BootSourceProvider` trait for network-based recovery. Contains a lightweight network stack (lwIP) with DHCP client, TFTP client, and firmware ID mapping from a TOC (Table of Contents) configuration file.
+```mermaid
+flowchart LR
+    subgraph Caliptra_Subsystem["Caliptra Subsystem"]
+        Caliptra["Caliptra"]
+        MCU_ROM["MCU ROM"]
+        MCU_RT["MCU Runtime"]
+
+        Caliptra <--> MCU_ROM
+        Caliptra <--> MCU_RT
+    end
+
+    MCU_ROM <--> Net_Mailbox["Network Mailbox"]
+    MCU_RT <--> Net_Mailbox
+    Net_Mailbox <--> Network_ROM["Network ROM<br/>- DHCP Client<br/>- TFTP Client<br/>- FW ID Mapping"]
+    Network_ROM <-->|TAP Interface| Image_Server["Image Server<br/>- Image Store<br/>- DHCP Server<br/>- TFTP Server<br/>- Config File"]
+
+    style MCU_ROM stroke:red,stroke-width:2px
+    style MCU_RT stroke:red,stroke-width:2px
+    style Net_Mailbox stroke:red,stroke-width:2px
+    style Network_ROM stroke:red,stroke-width:2px
+    style Image_Server stroke:red,stroke-width:2px
+```
+
+*Red boxes indicate components affected by this change.*
+
+- **MCU ROM**: The MCU ROM boot flow is updated to accept an ordered array of `BootSourceProvider` trait implementations. During boot, the ROM iterates through the array and attempts each provider in order — the first provider is the flash-based boot source, and if it fails (e.g., both flash partitions are corrupted), the ROM falls back to the next provider in the array (e.g., network). The network `BootSourceProvider` implementation communicates with the Network Boot Coprocessor through a shared communication interface (e.g., a mailbox), exchanging messages via a defined messaging protocol to request and receive firmware images. Additionally, the ROM includes optional flash write-back logic: when a network recovery succeeds, the recovered images can be staged to flash and committed, restoring the flash to a bootable state for subsequent reboots.
+
+- **MCU Runtime**: Similar to the MCU ROM, the MCU Runtime loads SoC images through a `BootSourceProvider` implementation. During Stage 2 boot, if the flash is invalid, the image loading module uses the network `BootSourceProvider` to fetch SoC images from the network instead of flash. Fetched images are loaded to their designated memory addresses and authorized through Caliptra RT. The Runtime also implements flash write-back staging and commit for the remaining firmware images recovered over the network.
+
+- **Network Boot Coprocessor (Network ROM)**: A new component, operating outside the Caliptra subsystem boundary, that provides a reference implementation of a network-based boot source. The Network CoP integrates the lwIP C network stack, with Rust bindings wrapping the lwIP APIs so that the CoP's Rust application code can use them. The software architecture consists of:
+  - **Application Layer**: Responsible for communication with the MCU (via the mailbox messaging protocol) and orchestrating DHCP/TFTP operations to discover servers and download firmware images.
+  - **lwIP Network Stack**: Provides the TCP/IP stack including DHCP client and TFTP client functionality, built from C sources with Rust FFI bindings.
+  - **Drivers**: UART (debug logging), Ethernet (network I/O), and Mailbox (MCU communication) drivers.
+
+- **Emulator**: The emulator is extended with a new RISC-V CPU instance for the Network Boot Coprocessor. The Network CoP CPU is connected to the following peripherals:
+  - **Ethernet Peripheral**: Emulated NIC that communicates with external DHCP/TFTP servers through a TAP interface on the host.
+  - **Network Mailbox**: Shared communication interface between the MCU and the Network CoP for exchanging boot source messages.
+  - **UART**: Debug output for the Network CoP firmware.
+
+  These peripherals are connected to the Caliptra SS AXI Bus (actual HW implementation is pending).
+
+- **Build System and Integration Tests**:
+  1. **C-to-Rust Bindings**: `libclang-dev` is added as a build dependency to support generating Rust FFI bindings for the lwIP C sources.
+  2. **xtask Commands (Build)**: New xtask commands are added to build and package the Network CoP RISC-V firmware.
+  3. **xtask Commands (Test Infrastructure)**: New xtask commands are added to set up the TAP interface and to configure `dnsmasq` (used as a lightweight DHCP/TFTP server for integration testing).
+  4. **Integration Tests**: End-to-end network recovery boot tests using the emulated environment with DHCP and TFTP servers provided by `dnsmasq`.
+
+- **TOC (Table of Contents)**: The TOC format for the flash image is updated to accommodate network boot. The TOC is shared between flash and network boot modes. A new field is added to each TOC entry to specify the filename of the image, which is used as the TFTP download path during network recovery.
 
 ### Components Not Affected
 
 - **Caliptra Core**: No changes to Caliptra ROM or RT firmware. The recovery interface and authorization flows are used as-is.
-- **Flash Layout / TOC Format**: The TOC follows the existing flash layout specification — no format changes.
 - **Existing Flash Boot Path**: The normal flash-based boot path is unchanged. Network recovery is a fallback invoked only when flash boot fails.
 
 ### Protocol Stack (Network Boot Coprocessor)
