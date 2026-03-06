@@ -16,7 +16,7 @@ use core::cell::Cell;
 use network_drivers::network_mbox::NetworkMboxDriver;
 use network_hil::network_mbox::{
     NetworkMailbox, NetworkMailboxClient, NetworkMboxError, NetworkMboxStatus,
-    NetworkMboxTargetStatus,
+    NetworkMboxTargetStatus, Result,
 };
 
 const TEST_CMD_ECHO_INCREMENT: u32 = 0x0001;
@@ -44,8 +44,9 @@ impl NetworkMailboxClient for VerifyResponseClient {
         _user: u32,
         _rx_buf: &'static mut [u32],
         _dlen: usize,
-    ) {
+    ) -> Result<()> {
         // Not used in sender mode.
+        Ok(())
     }
 
     fn response_received(

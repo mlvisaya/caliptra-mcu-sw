@@ -200,7 +200,18 @@ pub trait NetworkMailboxClient {
     /// * `user` - The AXI USER ID of the requester.
     /// * `rx_buf` - Buffer containing the received data (dwords).
     /// * `dlen` - Number of valid bytes in `rx_buf`.
-    fn request_received(&self, command: u32, user: u32, rx_buf: &'static mut [u32], dlen: usize);
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the request was accepted for processing.
+    /// * `Err(NetworkMboxError)` if the request could not be handled.
+    fn request_received(
+        &self,
+        command: u32,
+        user: u32,
+        rx_buf: &'static mut [u32],
+        dlen: usize,
+    ) -> Result<()>;
 
     /// Called when a response is received from the target (Sender/Requester mode).
     ///

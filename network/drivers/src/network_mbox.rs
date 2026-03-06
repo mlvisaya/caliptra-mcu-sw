@@ -33,6 +33,9 @@ use core::cell::Cell;
 pub const NETWORK_MBOX_REGS: StaticRef<NetworkMboxRegs> =
     unsafe { StaticRef::new(NETWORK_MBOX_CSR_ADDR as *const NetworkMboxRegs) };
 
+/// Holds the SRAM buffer pointer. Taken when given to a client
+/// and put back via `restore_rx_buffer()` to prevent aliasing.
+
 /// State machine for the network mailbox driver.
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum DriverState {
@@ -51,6 +54,7 @@ pub struct NetworkMboxDriver<'a> {
     regs: StaticRef<NetworkMboxRegs>,
     state: Cell<DriverState>,
     client: Cell<Option<&'a dyn NetworkMailboxClient>>,
+    sram_ptr: Cell<Option<*mut u32>>,
 }
 
 impl NetworkMboxDriver<'_> {
@@ -65,6 +69,7 @@ impl NetworkMboxDriver<'_> {
             regs,
             state: Cell::new(DriverState::Idle),
             client: Cell::new(None),
+            sram_ptr: Cell::new(Some(regs.network_mbox_sram.as_ptr() as *mut u32)),
         }
     }
 
@@ -193,6 +198,16 @@ impl NetworkMboxDriver<'_> {
 
     /// Handle an incoming request from an external agent.
     fn handle_incoming_request(&self) {
+        if self.try_handle_incoming_request().is_err() {
+            self.regs
+                .network_mbox_cmd_status
+                .write(NetworkMboxCmdStatus::Status::CmdFailure);
+            self.state.set(DriverState::RxWait);
+        }
+    }
+
+    /// Try to process an incoming request, returning Err on any failure.
+    fn try_handle_incoming_request(&self) -> Result<()> {
         let command = self.read_cmd();
         let user = self.read_user();
         let dlen = self.read_dlen();
@@ -200,27 +215,22 @@ impl NetworkMboxDriver<'_> {
         let max_dw = self.regs.network_mbox_sram.len();
 
         if dw_len > max_dw {
-            // Set cmd_status to failure and clear execute.
-            self.regs
-                .network_mbox_cmd_status
-                .write(NetworkMboxCmdStatus::Status::CmdFailure);
-            return;
+            return Err(NetworkMboxError::DataTooLarge);
         }
 
-        if let Some(client) = self.client.get() {
-            // Allocate a static buffer from SRAM for the client.
-            // The client is responsible for calling restore_rx_buffer() after
-            // processing.
-            let buf = unsafe {
-                core::slice::from_raw_parts_mut(
-                    self.regs.network_mbox_sram.as_ptr() as *mut u32,
-                    max_dw,
-                )
-            };
+        let client = self.client.get().ok_or(NetworkMboxError::Failed)?;
+        let sram_ptr = self.sram_ptr.take().ok_or(NetworkMboxError::Failed)?;
 
-            self.state.set(DriverState::TxInProgress);
-            client.request_received(command, user, buf, dlen);
+        let buf = unsafe { core::slice::from_raw_parts_mut(sram_ptr, max_dw) };
+
+        self.state.set(DriverState::TxInProgress);
+
+        if client.request_received(command, user, buf, dlen).is_err() {
+            self.sram_ptr.set(Some(sram_ptr));
+            return Err(NetworkMboxError::Failed);
         }
+
+        Ok(())
     }
 
     /// Handle the target done event (sender mode).
@@ -238,13 +248,13 @@ impl NetworkMboxDriver<'_> {
 
             self.state.set(DriverState::Idle);
             client.response_received(target_status, buf, dlen);
-
-            // Release the lock by clearing execute (triggers zeroization).
-            self.regs
-                .network_mbox_execute
-                .write(NetworkMboxExecute::Execute::CLEAR);
-            self.state.set(DriverState::RxWait);
         }
+
+        // Release the lock by clearing execute (triggers zeroization).
+        self.regs
+            .network_mbox_execute
+            .write(NetworkMboxExecute::Execute::CLEAR);
+        self.state.set(DriverState::RxWait);
     }
 
     /// Convert a HIL status to the register bitfield value for cmd_status.
@@ -371,9 +381,8 @@ impl<'a> NetworkMailbox<'a> for NetworkMboxDriver<'a> {
         self.regs.network_mbox_sram.len()
     }
 
-    fn restore_rx_buffer(&self, _rx_buf: &'static mut [u32]) {
-        // The network mailbox driver maps SRAM directly via registers,
-        // so there is no separate buffer to restore. This is a no-op.
+    fn restore_rx_buffer(&self, rx_buf: &'static mut [u32]) {
+        self.sram_ptr.set(Some(rx_buf.as_mut_ptr()));
     }
 
     fn enable(&self) {

@@ -22,7 +22,7 @@ Abstract:
 use network_drivers::network_mbox::NetworkMboxDriver;
 use network_drivers::{exit_emulator, println};
 use network_hil::network_mbox::{
-    NetworkMailbox, NetworkMailboxClient, NetworkMboxStatus, NetworkMboxTargetStatus,
+    NetworkMailbox, NetworkMailboxClient, NetworkMboxStatus, NetworkMboxTargetStatus, Result,
 };
 
 use core::cell::Cell;
@@ -48,7 +48,13 @@ impl<'a> EchoIncrementClient<'a> {
 }
 
 impl<'a> NetworkMailboxClient for EchoIncrementClient<'a> {
-    fn request_received(&self, command: u32, _user: u32, rx_buf: &'static mut [u32], dlen: usize) {
+    fn request_received(
+        &self,
+        command: u32,
+        _user: u32,
+        rx_buf: &'static mut [u32],
+        dlen: usize,
+    ) -> Result<()> {
         let dw_len = dlen.div_ceil(4);
 
         println!("[net-mbox] Received cmd={:#x}, dlen={}", command, dlen);
@@ -78,6 +84,7 @@ impl<'a> NetworkMailboxClient for EchoIncrementClient<'a> {
 
         self.driver.restore_rx_buffer(rx_buf);
         self.done.set(true);
+        Ok(())
     }
 
     fn response_received(
