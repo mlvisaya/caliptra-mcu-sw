@@ -17,6 +17,8 @@ mcu-config-emulator.workspace = true
 mcu-error.workspace = true
 mcu-image-header.workspace = true
 mcu-rom-common.workspace = true
+network-drivers = { workspace = true, optional = true }
+network-hil = { workspace = true, optional = true }
 registers-generated.workspace = true
 romtime.workspace = true
 tock-registers.workspace = true
@@ -39,3 +41,4 @@ test-mcu-svn-gt-fuse = []
 test-mcu-svn-lt-fuse = []
 test-flash-based-boot = ["hw-2-1"]
 test-pldm-streaming-boot = []
+test-network-mbox-comm = ["network-drivers", "network-hil"]
