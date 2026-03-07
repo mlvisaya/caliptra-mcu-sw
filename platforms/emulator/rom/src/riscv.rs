@@ -195,6 +195,9 @@ pub extern "C" fn rom_entry() -> ! {
             ..Default::default()
         };
         mcu_rom_common::rom_start(rom_parameters);
+    } else if cfg!(feature = "test-network-mbox-comm") {
+        #[cfg(feature = "test-network-mbox-comm")]
+        crate::network_mbox_test::run();
     } else {
         // Read backup blob from DOT flash region
         let recovery_backup_blob = {

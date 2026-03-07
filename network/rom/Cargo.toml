@@ -20,3 +20,4 @@ test-network-rom-lwip-dhcp = ["network-app-rom-test/lwip-dhcp", "network-app-rom
 test-network-rom-lwip-dhcp6 = ["network-app-rom-test/lwip-dhcp6", "network-app-rom-test"]
 test-network-rom-lwip-tftp = ["network-app-rom-test/lwip-tftp", "network-app-rom-test"]
 test-network-rom-lwip-tftpv6 = ["network-app-rom-test/lwip-tftpv6", "network-app-rom-test"]
+test-network-mbox-comm = ["network-app-rom-test/test-network-mbox-comm", "network-app-rom-test"]

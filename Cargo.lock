@@ -3246,6 +3246,8 @@ dependencies = [
  "mcu-error",
  "mcu-image-header",
  "mcu-rom-common",
+ "network-drivers",
+ "network-hil",
  "registers-generated",
  "riscv-csr",
  "romtime",
