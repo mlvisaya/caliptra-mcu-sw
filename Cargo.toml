@@ -24,6 +24,7 @@ members = [
     "hw/model",
     "hw/model/test-fw",
     "network/app/example",
+    "network/boot-source-protocol",
     "network/config",
     "network/drivers",
     "network/hil",
@@ -222,6 +223,7 @@ mcu-rom-common = { path = "rom" }
 mcu-test-harness = {path = "platforms/test_harness"}
 lwip-rs = { path = "network/net/lwip-rs", default-features = false }
 network-app-rom-test = { path = "network/app/test" }
+boot-source-protocol = { path = "network/boot-source-protocol" }
 network-config = { path = "network/config" }
 network-drivers = { path = "network/drivers" }
 network-hil = { path = "network/hil" }
