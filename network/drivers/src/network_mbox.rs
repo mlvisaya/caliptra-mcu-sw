@@ -35,7 +35,7 @@ pub const NETWORK_MBOX_REGS: StaticRef<NetworkMboxRegs> =
 
 /// Holds the SRAM buffer pointer. Taken when given to a client
 /// and put back via `restore_rx_buffer()` to prevent aliasing.
-
+///
 /// State machine for the network mailbox driver.
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum DriverState {
