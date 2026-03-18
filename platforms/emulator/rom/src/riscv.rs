@@ -198,6 +198,9 @@ pub extern "C" fn rom_entry() -> ! {
     } else if cfg!(feature = "test-network-mbox-comm") {
         #[cfg(feature = "test-network-mbox-comm")]
         crate::network_mbox_test::run();
+    } else if cfg!(feature = "test-boot-source") {
+        #[cfg(feature = "test-boot-source")]
+        crate::boot_source_test::run();
     } else {
         // Read backup blob from DOT flash region
         let recovery_backup_blob = {

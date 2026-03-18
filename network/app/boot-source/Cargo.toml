@@ -1,0 +1,16 @@
+# Licensed under the Apache-2.0 license
+
+[package]
+name = "network-app-boot-source"
+version.workspace = true
+edition.workspace = true
+description = "Boot source provider application for the Network Coprocessor"
+
+[dependencies]
+boot-source-protocol.workspace = true
+critical-section.workspace = true
+embassy-sync.workspace = true
+flash-image.workspace = true
+lwip-rs = { workspace = true, default-features = false, features = ["baremetal-tftp", "baremetal-tftpv6"] }
+network-hil.workspace = true
+zerocopy.workspace = true

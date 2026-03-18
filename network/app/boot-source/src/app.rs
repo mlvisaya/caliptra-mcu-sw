@@ -1,0 +1,287 @@
+// Licensed under the Apache-2.0 license
+
+//! Boot source provider application.
+//!
+//! Implements the boot source protocol over the network mailbox, handling
+//! requests from the MCU ROM/Runtime. Uses lwIP for DHCP configuration
+//! and TFTP image downloads.
+//!
+//! # Mailbox Protocol Mapping
+//!
+//! The MCU initiates every mailbox transaction. The network coprocessor
+//! acts as the receiver/target, processing each request and writing a
+//! response:
+//!
+//! - `InitiateBootRequest` → perform DHCP + TOC fetch → `InitiateBootResponse`
+//! - `ImageMetadataRequest` → look up TOC entry → `ImageMetadataResponse`
+//! - `ImageDownloadRequest` → start TFTP GET, send first chunk → `ImageChunk`
+//! - `ChunkAck` → send next chunk (or complete) → `ImageChunk`
+//! - `Finalize` → clean up resources → `FinalizeAck`
+
+use boot_source_protocol::messages::*;
+use core::cell::{Cell, UnsafeCell};
+use network_hil::ethernet::Ethernet;
+use network_hil::network_mbox::{
+    NetworkMailbox, NetworkMailboxClient, NetworkMboxError, NetworkMboxTargetStatus, Result,
+};
+use network_hil::timers::Timers;
+
+use crate::handler;
+use crate::network;
+use crate::toc::Toc;
+
+/// State machine for the boot source provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppState {
+    /// Waiting for InitiateBootRequest.
+    Idle,
+    /// DHCP and TOC fetch completed. Ready to serve image requests.
+    Ready,
+    /// Currently streaming image chunks for an active TFTP download.
+    Streaming,
+}
+
+/// Boot source provider application.
+///
+/// Accepts a HIL interface for the network mailbox driver.
+/// The lwIP network stack must be initialized before construction
+/// via [`network::init_lwip`].
+pub struct BootSourceApp<'a, M: NetworkMailbox<'a>> {
+    mbox: &'a M,
+    state: Cell<AppState>,
+    toc: UnsafeCell<Toc>,
+    boot_flags: Cell<BootFlags>,
+    /// Active TFTP transfer state: firmware ID being downloaded.
+    active_firmware_id: Cell<u8>,
+    /// Sequence number for the current image transfer.
+    sequence_number: Cell<u16>,
+    /// Byte offset into the current image transfer.
+    transfer_offset: Cell<u32>,
+    /// Maximum payload bytes per chunk (based on mailbox SRAM size).
+    max_chunk_size: usize,
+    dhcp_result: UnsafeCell<Option<network::DhcpResult>>,
+}
+
+impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
+    /// Create a new boot source application.
+    ///
+    /// `max_chunk_size` is the maximum image chunk payload in bytes
+    /// (should be the mailbox SRAM size minus the header overhead).
+    pub fn new(mbox: &'a M, max_chunk_size: usize) -> Self {
+        Self {
+            mbox,
+            state: Cell::new(AppState::Idle),
+            toc: UnsafeCell::new(Toc::new()),
+            boot_flags: Cell::new(BootFlags(0)),
+            active_firmware_id: Cell::new(0),
+            sequence_number: Cell::new(0),
+            transfer_offset: Cell::new(0),
+            max_chunk_size,
+            dhcp_result: UnsafeCell::new(None),
+        }
+    }
+
+    /// Initialize the lwIP network stack and register this app as the
+    /// mailbox client.
+    ///
+    /// `eth` is any implementation of the [`Ethernet`] trait for network I/O.
+    /// `timer` is any implementation of the [`Timers`] trait for time tracking.
+    ///
+    /// Must be called once before [`run_loop`](Self::run_loop).
+    pub fn init(
+        &'a self,
+        eth: &'static mut dyn Ethernet,
+        timer: &'static dyn Timers,
+    ) -> core::result::Result<(), network::NetworkError> {
+        network::init_lwip(eth, timer)?;
+        self.mbox.set_client(self);
+        self.mbox.enable();
+        Ok(())
+    }
+
+    /// Initialize without the network stack (for testing).
+    ///
+    /// Registers this app as the mailbox client and enables the
+    /// mailbox, but does not initialize lwIP.  Useful when the test
+    /// pre-populates the TOC and sets the state to [`AppState::Ready`]
+    /// so that protocol handlers that don't touch the network (e.g.
+    /// `ImageMetadataRequest`, `Finalize`) can be exercised.
+    pub fn init_for_test(&'a self) {
+        self.mbox.set_client(self);
+        self.mbox.enable();
+    }
+
+    /// Override the application state (for testing only).
+    pub fn set_state_for_test(&self, state: AppState) {
+        self.state.set(state);
+    }
+
+    /// Main polling loop.
+    ///
+    /// Alternates between polling the mailbox driver for incoming
+    /// requests and the lwIP network interface for packet processing.
+    pub fn run_loop(&self) -> ! {
+        loop {
+            self.mbox.poll();
+            network::poll();
+        }
+    }
+
+    /// Get a mutable reference to the TOC.
+    ///
+    /// # Safety
+    /// Safe in bare-metal single-threaded context where the mailbox
+    /// driver serializes callbacks.
+    fn toc_mut(&self) -> &mut Toc {
+        unsafe { &mut *self.toc.get() }
+    }
+
+    /// Get a shared reference to the TOC.
+    fn toc_ref(&self) -> &Toc {
+        unsafe { &*self.toc.get() }
+    }
+
+    /// Dispatch a mailbox request to the appropriate handler based on
+    /// the message type byte and current state.
+    fn dispatch(&self, data: &[u8]) -> Result<()> {
+        let msg_type_byte = match peek_message_type(data) {
+            Some(b) => b,
+            None => return Err(NetworkMboxError::InvalidArgument),
+        };
+
+        let msg_type = match MessageType::from_u8(msg_type_byte) {
+            Some(mt) => mt,
+            None => return Err(NetworkMboxError::InvalidArgument),
+        };
+
+        match (self.state.get(), msg_type) {
+            (AppState::Idle, MessageType::InitiateBootRequest) => {
+                let dhcp = unsafe { &mut *self.dhcp_result.get() };
+                handler::handle_initiate_boot(
+                    self.mbox,
+                    data,
+                    &self.boot_flags,
+                    self.toc_mut(),
+                    dhcp,
+                )?;
+                self.state.set(AppState::Ready);
+                Ok(())
+            }
+            (AppState::Ready, MessageType::ImageMetadataRequest) => {
+                handler::handle_image_metadata(self.mbox, data, self.toc_ref())
+            }
+            (AppState::Ready, MessageType::ImageDownloadRequest) => {
+                let dhcp = unsafe { &*self.dhcp_result.get() };
+                let dhcp = dhcp.as_ref().ok_or(NetworkMboxError::Failed)?;
+                handler::handle_image_download(
+                    self.mbox,
+                    data,
+                    self.toc_ref(),
+                    dhcp,
+                    &self.sequence_number,
+                    &self.transfer_offset,
+                )?;
+                self.state.set(AppState::Streaming);
+                Ok(())
+            }
+            (AppState::Streaming, MessageType::ChunkAck) => {
+                let is_last = handler::handle_chunk_ack(
+                    self.mbox,
+                    data,
+                    self.max_chunk_size,
+                    &self.sequence_number,
+                    &self.transfer_offset,
+                )?;
+                if is_last {
+                    self.state.set(AppState::Ready);
+                }
+                Ok(())
+            }
+            (_, MessageType::Finalize) => {
+                handler::handle_finalize(self.mbox, data, self.toc_mut())?;
+                self.state.set(AppState::Idle);
+                self.active_firmware_id.set(0);
+                self.sequence_number.set(0);
+                self.transfer_offset.set(0);
+                Ok(())
+            }
+            _ => Err(NetworkMboxError::InvalidArgument),
+        }
+    }
+
+    /// Returns the current application state.
+    pub fn state(&self) -> AppState {
+        self.state.get()
+    }
+
+    /// Returns the boot flags from the last InitiateBootRequest.
+    pub fn boot_flags(&self) -> BootFlags {
+        self.boot_flags.get()
+    }
+
+    /// Register a TOC entry manually (e.g. for testing).
+    pub fn add_toc_entry(
+        &self,
+        firmware_id: u8,
+        filename: &[u8],
+        image_size: u32,
+        image_checksum: u32,
+    ) -> bool {
+        self.toc_mut().add(firmware_id, filename, image_size, image_checksum)
+    }
+
+    /// Returns the firmware ID of the active download, if streaming.
+    pub fn active_firmware_id(&self) -> Option<u8> {
+        if self.state.get() == AppState::Streaming {
+            Some(self.active_firmware_id.get())
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, M: NetworkMailbox<'a>> NetworkMailboxClient for BootSourceApp<'a, M> {
+    fn request_received(
+        &self,
+        _command: u32,
+        _user: u32,
+        rx_buf: &'static mut [u32],
+        dlen: usize,
+    ) -> Result<()> {
+        // Copy SRAM dwords to a local byte buffer. The mailbox SRAM
+        // bus may only support word-aligned 32-bit reads, so we must
+        // not reinterpret the SRAM pointer as a byte slice directly.
+        const MAX_REQ_BYTES: usize = 256;
+        let copy_len = dlen.min(MAX_REQ_BYTES);
+        let mut local_buf = [0u8; MAX_REQ_BYTES];
+        let dw_len = copy_len.div_ceil(4);
+        for i in 0..dw_len {
+            let dw = rx_buf[i];
+            let base = i * 4;
+            let bytes = dw.to_le_bytes();
+            for j in 0..4 {
+                if base + j < copy_len {
+                    local_buf[base + j] = bytes[j];
+                }
+            }
+        }
+
+        let result = self.dispatch(&local_buf[..copy_len]);
+
+        self.mbox.restore_rx_buffer(rx_buf);
+        result
+    }
+
+    fn response_received(
+        &self,
+        _status: NetworkMboxTargetStatus,
+        _rx_buf: &'static mut [u32],
+        _dlen: usize,
+    ) {
+        // Not used — this app operates in receiver mode only.
+    }
+
+    fn send_done(&self, _result: Result<()>) {
+        // Not used — responses are sent synchronously.
+    }
+}

@@ -1,0 +1,379 @@
+// Licensed under the Apache-2.0 license
+
+//! Protocol message handlers.
+//!
+//! Each handler parses the incoming request, performs the required action
+//! (including DHCP and TFTP network operations via lwIP),
+//! and writes a response via the mailbox.
+
+use boot_source_protocol::messages::*;
+use lwip_rs::ip::Ipv6Addr;
+use network_hil::network_mbox::{NetworkMailbox, NetworkMboxError, NetworkMboxStatus, Result};
+use zerocopy::{Immutable, IntoBytes};
+
+use crate::network;
+use crate::toc::Toc;
+
+/// Default maximum poll iterations for DHCP.
+const DHCP_MAX_ITERATIONS: u32 = 500_000;
+
+/// Default maximum poll iterations for a single TFTP transfer.
+const TFTP_MAX_ITERATIONS: u32 = 500_000;
+
+/// Default fallback TFTP server IPv6 address (used when DHCPv4 is unavailable).
+///
+/// This should be overridden in the final product. For now it is a
+/// link-local placeholder.
+const V6_FALLBACK_SERVER: Ipv6Addr = Ipv6Addr::from_raw([0, 0, 0, 0]);
+
+/// Default fallback boot file name for IPv6 (null-terminated).
+const V6_FALLBACK_BOOT_FILE: &[u8] = b"boot.cfg\0";
+
+// ---------------------------------------------------------------------------
+// Mailbox response helpers
+// ---------------------------------------------------------------------------
+
+/// Serialize a packet into u32 dwords and send it as a mailbox response.
+pub fn send_packet_response<'a, T, M>(mbox: &M, packet: &T) -> Result<()>
+where
+    T: IntoBytes + Immutable + ?Sized,
+    M: NetworkMailbox<'a>,
+{
+    let bytes = packet.as_bytes();
+    let dlen = bytes.len();
+    let dw_iter = bytes.chunks(4).map(|chunk| {
+        let mut dw = [0u8; 4];
+        dw[..chunk.len()].copy_from_slice(chunk);
+        u32::from_le_bytes(dw)
+    });
+    mbox.send_response(dw_iter, dlen)?;
+    mbox.set_target_status(NetworkMboxStatus::CmdComplete)
+}
+
+/// Send an error response for the given response message type.
+pub fn send_error<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    msg_type: MessageType,
+    error: ErrorCode,
+) -> Result<()> {
+    match msg_type {
+        MessageType::InitiateBootResponse => {
+            let mut bytes = [0u8; InitiateBootResponse::SIZE];
+            bytes[0] = MessageType::InitiateBootResponse.as_u8();
+            bytes[1] = error.as_u8();
+            send_packet_response(mbox, &bytes)
+        }
+        MessageType::ImageMetadataResponse => {
+            let pkt = ImageMetadataResponse::error(error);
+            send_packet_response(mbox, &pkt)
+        }
+        MessageType::ImageChunk => {
+            let pkt = ImageChunkHeader::error(error);
+            send_packet_response(mbox, &pkt)
+        }
+        MessageType::FinalizeAck => {
+            let mut bytes = [0u8; FinalizeAck::SIZE];
+            bytes[0] = MessageType::FinalizeAck.as_u8();
+            bytes[1] = error.as_u8();
+            send_packet_response(mbox, &bytes)
+        }
+        _ => Err(NetworkMboxError::InvalidArgument),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+/// Handle `InitiateBootRequest`.
+///
+/// Performs DHCP to obtain an IP address and retrieves the boot file name
+/// and TFTP server IP. Stores boot flags and transitions to Ready state.
+/// The TOC fetch via TFTP is done separately after DHCP completes.
+pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    data: &[u8],
+    boot_flags: &core::cell::Cell<BootFlags>,
+    toc: &mut Toc,
+    dhcp_result: &mut Option<network::DhcpResult>,
+) -> Result<()> {
+    let req: &InitiateBootRequest = match parse_fixed(data) {
+        Some(r) => r,
+        None => {
+            return send_error(mbox, MessageType::InitiateBootResponse, ErrorCode::InvalidParameters)
+        }
+    };
+
+    boot_flags.set(req.flags);
+
+    // Run DHCP to obtain network configuration.
+    let result = network::run_dhcp(
+        DHCP_MAX_ITERATIONS,
+        V6_FALLBACK_SERVER,
+        V6_FALLBACK_BOOT_FILE,
+    )
+    .map_err(|_| {
+        let _ = send_error(
+            mbox,
+            MessageType::InitiateBootResponse,
+            ErrorCode::SourceNotReady,
+        );
+        NetworkMboxError::Failed
+    })?;
+
+    // Initialize TFTP client for later image downloads.
+    network::init_tftp().map_err(|_| {
+        let _ = send_error(
+            mbox,
+            MessageType::InitiateBootResponse,
+            ErrorCode::SourceNotReady,
+        );
+        NetworkMboxError::Failed
+    })?;
+
+    // Fetch the TOC config file via TFTP.
+    let mut fname_buf = [0u8; 128];
+    let len = result.boot_file_len.min(127);
+    fname_buf[..len].copy_from_slice(&result.boot_file[..len]);
+    fname_buf[len] = 0;
+
+    network::start_tftp_get(&result.server_ip, &fname_buf[..len + 1]).map_err(|_| {
+        let _ = send_error(
+            mbox,
+            MessageType::InitiateBootResponse,
+            ErrorCode::SourceNotReady,
+        );
+        NetworkMboxError::Failed
+    })?;
+
+    // Poll until the TOC download completes.
+    for _ in 0..TFTP_MAX_ITERATIONS {
+        network::poll();
+        if network::tftp_is_complete() {
+            break;
+        }
+    }
+
+    if network::tftp_has_error() || !network::tftp_is_complete() {
+        let _ = send_error(
+            mbox,
+            MessageType::InitiateBootResponse,
+            ErrorCode::SourceNotReady,
+        );
+        return Err(NetworkMboxError::Failed);
+    }
+
+    // Read the TOC data and parse it.
+    let mut toc_buf = [0u8; network::TFTP_CHUNK_BUF_SIZE];
+    let toc_len = network::take_tftp_chunk(&mut toc_buf);
+    if !toc.parse(&toc_buf[..toc_len]) {
+        let _ = send_error(
+            mbox,
+            MessageType::InitiateBootResponse,
+            ErrorCode::CorruptedData,
+        );
+        return Err(NetworkMboxError::Failed);
+    }
+
+    *dhcp_result = Some(result);
+
+    let resp = InitiateBootResponse::new(Status::Success);
+    send_packet_response(mbox, &resp)
+}
+
+/// Handle `ImageMetadataRequest`.
+pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    data: &[u8],
+    toc: &Toc,
+) -> Result<()> {
+    let req: &ImageMetadataRequest = match parse_fixed(data) {
+        Some(r) => r,
+        None => {
+            return send_error(
+                mbox,
+                MessageType::ImageMetadataResponse,
+                ErrorCode::InvalidParameters,
+            )
+        }
+    };
+
+    match toc.find(req.firmware_id) {
+        Some(entry) => {
+            let mut checksum = [0u8; 32];
+            checksum[..4].copy_from_slice(&entry.image_checksum.to_le_bytes());
+            let resp = ImageMetadataResponse::new(
+                entry.image_size,
+                checksum,
+                0,
+                0,
+            );
+            send_packet_response(mbox, &resp)
+        }
+        None => send_error(
+            mbox,
+            MessageType::ImageMetadataResponse,
+            ErrorCode::ImageNotFound,
+        ),
+    }
+}
+
+/// Handle `ImageDownloadRequest`.
+///
+/// Starts a TFTP GET for the requested firmware image and sends the first
+/// chunk (or a zero-payload header if data is not yet available).
+pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    data: &[u8],
+    toc: &Toc,
+    dhcp_result: &network::DhcpResult,
+    seq: &core::cell::Cell<u16>,
+    offset: &core::cell::Cell<u32>,
+) -> Result<()> {
+    let req: &ImageDownloadRequest = match parse_fixed(data) {
+        Some(r) => r,
+        None => return send_error(mbox, MessageType::ImageChunk, ErrorCode::InvalidParameters),
+    };
+
+    let entry = match toc.find(req.firmware_id) {
+        Some(e) => e,
+        None => return send_error(mbox, MessageType::ImageChunk, ErrorCode::ImageNotFound),
+    };
+
+    seq.set(0);
+    offset.set(0);
+
+    // Start TFTP GET for this image.
+    let fname = &entry.filename[..entry.filename_len + 1]; // null-terminated
+    network::start_tftp_get(&dhcp_result.server_ip, fname).map_err(|_| {
+        let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::SourceNotReady);
+        NetworkMboxError::Failed
+    })?;
+
+    // Send an initial zero-payload header to acknowledge the download started.
+    let hdr = ImageChunkHeader::new(0, 0, 0);
+    send_packet_response(mbox, &hdr)
+}
+
+/// Handle `ChunkAck` during streaming.
+///
+/// Polls the network for more TFTP data, then sends the next chunk.
+/// Returns `true` in the second tuple element if this was the last chunk.
+pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    data: &[u8],
+    max_chunk_size: usize,
+    seq: &core::cell::Cell<u16>,
+    offset: &core::cell::Cell<u32>,
+) -> core::result::Result<bool, NetworkMboxError> {
+    let _ack: &ChunkAck = match parse_fixed(data) {
+        Some(a) => a,
+        None => {
+            let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::InvalidParameters);
+            return Err(NetworkMboxError::InvalidArgument);
+        }
+    };
+
+    // Poll network to receive more TFTP data.
+    for _ in 0..1000 {
+        network::poll();
+        if network::tftp_buffered_len() > 0 || network::tftp_is_complete() {
+            break;
+        }
+    }
+
+    if network::tftp_has_error() {
+        let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::CorruptedData);
+        return Err(NetworkMboxError::Failed);
+    }
+
+    let s = seq.get();
+    let o = offset.get();
+
+    // Read available data from the TFTP buffer.
+    let mut chunk_buf = [0u8; 4096];
+    let chunk_max = max_chunk_size.min(chunk_buf.len());
+    let chunk_len = network::take_tftp_chunk(&mut chunk_buf[..chunk_max]);
+
+    let is_last = network::tftp_is_complete() && network::tftp_buffered_len() == 0;
+
+    let hdr = ImageChunkHeader::new(s, o, chunk_len as u32);
+    let hdr_bytes = hdr.as_bytes();
+    let total_len = ImageChunkHeader::SIZE + chunk_len;
+
+    let combined_iter = hdr_bytes.iter().chain(chunk_buf[..chunk_len].iter()).copied();
+    let dw_iter = DwordIterator::new(combined_iter, total_len);
+    mbox.send_response(dw_iter, total_len)?;
+    mbox.set_target_status(NetworkMboxStatus::CmdComplete)?;
+
+    seq.set(s.wrapping_add(1));
+    offset.set(o.wrapping_add(chunk_len as u32));
+
+    if is_last {
+        network::cleanup_tftp();
+    }
+
+    Ok(is_last)
+}
+
+/// Handle `Finalize`.
+pub fn handle_finalize<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    data: &[u8],
+    toc: &mut Toc,
+) -> Result<()> {
+    let _req: &FinalizeRequest = match parse_fixed(data) {
+        Some(r) => r,
+        None => return send_error(mbox, MessageType::FinalizeAck, ErrorCode::InvalidParameters),
+    };
+
+    toc.clear();
+
+    network::cleanup_tftp();
+    network::shutdown();
+
+    let resp = FinalizeAck::new(Status::Success, CleanupFlags(0));
+    send_packet_response(mbox, &resp)
+}
+
+// ---------------------------------------------------------------------------
+// DwordIterator
+// ---------------------------------------------------------------------------
+
+/// Iterator adapter that packs a byte stream into little-endian u32 dwords.
+pub(crate) struct DwordIterator<I: Iterator<Item = u8>> {
+    inner: I,
+    remaining: usize,
+}
+
+impl<I: Iterator<Item = u8>> DwordIterator<I> {
+    pub fn new(inner: I, total_bytes: usize) -> Self {
+        Self {
+            inner,
+            remaining: total_bytes,
+        }
+    }
+}
+
+impl<I: Iterator<Item = u8>> Iterator for DwordIterator<I> {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let mut dw = [0u8; 4];
+        for byte in dw.iter_mut() {
+            if self.remaining == 0 {
+                break;
+            }
+            if let Some(b) = self.inner.next() {
+                *byte = b;
+                self.remaining -= 1;
+            } else {
+                break;
+            }
+        }
+        Some(u32::from_le_bytes(dw))
+    }
+}

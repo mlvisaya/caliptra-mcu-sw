@@ -181,6 +181,12 @@ pub trait NetworkMailbox<'a> {
     ///
     /// * `client` - Reference to an object implementing `NetworkMailboxClient`.
     fn set_client(&self, client: &'a dyn NetworkMailboxClient);
+
+    /// Poll for incoming requests or target done events.
+    ///
+    /// Must be called frequently from the main loop to process
+    /// mailbox transactions.
+    fn poll(&self);
 }
 
 /// Trait for clients that handle network mailbox events and callbacks.
