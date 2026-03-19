@@ -11,7 +11,8 @@ pub const MCU_RT_IDENTIFIER: u32 = 0x00000002;
 pub const SOC_IMAGES_BASE_IDENTIFIER: u32 = 0x00001000;
 
 pub const FLASH_IMAGE_MAGIC_NUMBER: u32 = u32::from_be_bytes(*b"FLSH");
-pub const HEADER_VERSION: u16 = 0x0001;
+pub const TFTP_IMAGE_MAGIC_NUMBER: u32 = u32::from_be_bytes(*b"TFTP");
+pub const HEADER_VERSION: u16 = 0x0002;
 
 #[repr(C)]
 #[derive(Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
@@ -25,7 +26,8 @@ pub struct FlashHeader {
 
 impl FlashHeader {
     pub fn verify(&self) -> bool {
-        if self.magic.get() != FLASH_IMAGE_MAGIC_NUMBER {
+        let magic = self.magic.get();
+        if magic != FLASH_IMAGE_MAGIC_NUMBER && magic != TFTP_IMAGE_MAGIC_NUMBER {
             return false;
         }
         if self.version != HEADER_VERSION {
@@ -52,6 +54,7 @@ pub struct ImageHeader {
     pub identifier: u32,
     pub offset: u32,
     pub size: u32,
+    pub filename: [u8; 64],
     pub image_checksum: u32,
     pub image_header_checksum: u32,
 }
