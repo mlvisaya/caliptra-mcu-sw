@@ -5,18 +5,6 @@
 //! Implements the boot source protocol over the network mailbox, handling
 //! requests from the MCU ROM/Runtime. Uses lwIP for DHCP configuration
 //! and TFTP image downloads.
-//!
-//! # Mailbox Protocol Mapping
-//!
-//! The MCU initiates every mailbox transaction. The network coprocessor
-//! acts as the receiver/target, processing each request and writing a
-//! response:
-//!
-//! - `InitiateBootRequest` → perform DHCP + TOC fetch → `InitiateBootResponse`
-//! - `ImageMetadataRequest` → look up TOC entry → `ImageMetadataResponse`
-//! - `ImageDownloadRequest` → start TFTP GET, send first chunk → `ImageChunk`
-//! - `ChunkAck` → send next chunk (or complete) → `ImageChunk`
-//! - `Finalize` → clean up resources → `FinalizeAck`
 
 use boot_source_protocol::messages::*;
 use core::cell::{Cell, UnsafeCell};
@@ -30,7 +18,6 @@ use crate::handler;
 use crate::network;
 use crate::toc::Toc;
 
-/// State machine for the boot source provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppState {
     /// Waiting for InitiateBootRequest.
@@ -41,11 +28,6 @@ pub enum AppState {
     Streaming,
 }
 
-/// Boot source provider application.
-///
-/// Accepts a HIL interface for the network mailbox driver.
-/// The lwIP network stack must be initialized before construction
-/// via [`network::init_lwip`].
 pub struct BootSourceApp<'a, M: NetworkMailbox<'a>> {
     mbox: &'a M,
     state: Cell<AppState>,
@@ -63,10 +45,6 @@ pub struct BootSourceApp<'a, M: NetworkMailbox<'a>> {
 }
 
 impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
-    /// Create a new boot source application.
-    ///
-    /// `max_chunk_size` is the maximum image chunk payload in bytes
-    /// (should be the mailbox SRAM size minus the header overhead).
     pub fn new(mbox: &'a M, max_chunk_size: usize) -> Self {
         Self {
             mbox,
@@ -81,12 +59,6 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         }
     }
 
-    /// Initialize the lwIP network stack and register this app as the
-    /// mailbox client.
-    ///
-    /// `eth` is any implementation of the [`Ethernet`] trait for network I/O.
-    /// `timer` is any implementation of the [`Timers`] trait for time tracking.
-    ///
     /// Must be called once before [`run_loop`](Self::run_loop).
     pub fn init(
         &'a self,
@@ -99,31 +71,7 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         Ok(())
     }
 
-    /// Initialize without the network stack (for testing).
-    ///
-    /// Registers this app as the mailbox client and enables the
-    /// mailbox, but does not initialize lwIP.  Useful when the test
-    /// pre-populates the TOC and sets the state to [`AppState::Ready`]
-    /// so that protocol handlers that don't touch the network (e.g.
-    /// `ImageMetadataRequest`, `Finalize`) can be exercised.
-    pub fn init_for_test(&'a self) {
-        self.mbox.set_client(self);
-        self.mbox.enable();
-    }
-
-    /// Override the application state (for testing only).
-    pub fn set_state_for_test(&self, state: AppState) {
-        self.state.set(state);
-    }
-
     /// Main polling loop.
-    ///
-    /// Alternates between polling the mailbox driver for incoming
-    /// requests and the lwIP network interface for packet processing.
-    ///
-    /// Returns `Ok(())` once the protocol completes (state transitions
-    /// through `Ready` back to `Idle` after `Finalize`).  Returns
-    /// `Err` if `max_polls` iterations are exhausted before completion.
     pub fn run_loop(&self, max_polls: u32) -> Result<()> {
         let mut seen_ready = false;
         for _ in 0..max_polls {
@@ -141,8 +89,6 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         Err(NetworkMboxError::Timeout)
     }
 
-    /// Get a mutable reference to the TOC.
-    ///
     /// # Safety
     /// Safe in bare-metal single-threaded context where the mailbox
     /// driver serializes callbacks.
@@ -150,13 +96,10 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         unsafe { &mut *self.toc.get() }
     }
 
-    /// Get a shared reference to the TOC.
     fn toc_ref(&self) -> &Toc {
         unsafe { &*self.toc.get() }
     }
 
-    /// Dispatch a mailbox request to the appropriate handler based on
-    /// the message type byte and current state.
     fn dispatch(&self, data: &[u8]) -> Result<()> {
         let msg_type_byte = match peek_message_type(data) {
             Some(b) => b,
@@ -227,35 +170,7 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         }
     }
 
-    /// Returns the current application state.
-    pub fn state(&self) -> AppState {
-        self.state.get()
-    }
 
-    /// Returns the boot flags from the last InitiateBootRequest.
-    pub fn boot_flags(&self) -> BootFlags {
-        self.boot_flags.get()
-    }
-
-    /// Register a TOC entry manually (e.g. for testing).
-    pub fn add_toc_entry(
-        &self,
-        firmware_id: u8,
-        filename: &[u8],
-        image_size: u32,
-        image_checksum: u32,
-    ) -> bool {
-        self.toc_mut().add(firmware_id, filename, image_size, image_checksum)
-    }
-
-    /// Returns the firmware ID of the active download, if streaming.
-    pub fn active_firmware_id(&self) -> Option<u8> {
-        if self.state.get() == AppState::Streaming {
-            Some(self.active_firmware_id.get())
-        } else {
-            None
-        }
-    }
 }
 
 impl<'a, M: NetworkMailbox<'a>> NetworkMailboxClient for BootSourceApp<'a, M> {

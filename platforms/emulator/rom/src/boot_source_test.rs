@@ -10,12 +10,6 @@ Abstract:
 
     MCU ROM test for the boot-source protocol via the network mailbox.
 
-    Sends InitiateBootRequest (triggering DHCP + TFTP TOC retrieval on
-    the Network CoP), then ImageMetadataRequest for firmware ID 0x02
-    (MCU_RT), then ImageDownloadRequest followed by ChunkAck exchanges
-    to download and verify the full firmware image, and finally Finalize
-    to clean up.
-
 --*/
 
 use core::cell::Cell;
@@ -31,9 +25,7 @@ use network_hil::network_mbox::{
 };
 use zerocopy::{FromBytes, IntoBytes};
 
-/// Firmware ID matching the TOC entry built by the integration test.
 const TEST_FIRMWARE_ID: u8 = FIRMWARE_ID_MCU_RT;
-/// Expected image size from the TOC.
 const EXPECTED_IMAGE_SIZE: u32 = 4096;
 
 // -----------------------------------------------------------------------
@@ -53,7 +45,6 @@ enum Phase {
     Done,
 }
 
-/// Client that drives the multi-phase test.
 struct BootSourceTestClient<'a> {
     driver: &'a NetworkMboxDriver<'a>,
     phase: Cell<Phase>,
@@ -330,7 +321,6 @@ impl<'a> BootSourceTestClient<'a> {
     }
 }
 
-/// Convert a zerocopy packet's bytes into a dword iterator and byte length.
 fn pkt_to_dwords<T: IntoBytes + zerocopy::Immutable>(pkt: &T) -> (impl Iterator<Item = u32> + '_, usize) {
     let bytes = pkt.as_bytes();
     let dlen = bytes.len();

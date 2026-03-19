@@ -1,13 +1,5 @@
 // Licensed under the Apache-2.0 license
 
-//! Network operations backed by lwIP (DHCP + TFTP).
-//!
-//! This module wraps the lwIP bare-metal APIs behind a simple interface
-//! that the boot source handler can call.  All lwIP state lives in a
-//! critical-section [`Mutex`] — safe because the network coprocessor is
-//! single-threaded and the critical-section implementation supports
-//! nesting.
-
 use core::cell::{Cell, RefCell};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
@@ -50,12 +42,6 @@ pub enum ServerAddr {
 // Module-level statics (single-threaded bare-metal)
 // ---------------------------------------------------------------------------
 
-/// All lwIP-owned state collected into a single struct, protected by a
-/// critical-section [`Mutex`] so that no `static mut` is needed.
-///
-/// Individual fields use [`Cell`] (for scalars) or [`RefCell`] (for
-/// complex types) to provide interior mutability through the shared
-/// reference that [`Mutex::lock`] hands out.
 struct LwipState {
     netif: RefCell<BaremetalNetIf>,
     tftp: RefCell<BaremetalTftpClient>,
@@ -80,16 +66,9 @@ impl LwipState {
     }
 }
 
-// SAFETY: All access is single-threaded on bare-metal.  The raw pointers
-// inside `BaremetalNetIf` / `BaremetalTftpClient` (from lwIP C bindings)
-// are never shared across threads.
 unsafe impl Send for LwipState {}
 
 static LWIP: Mutex<CriticalSectionRawMutex, LwipState> = Mutex::new(LwipState::new());
-
-// Hardware trait-object pointers — kept outside the mutex because the
-// lwIP fn-pointer callbacks cannot capture state and must access these
-// through a global.  Only `unsafe` remains for the raw-pointer dereferences.
 static mut ETH: Option<*mut dyn Ethernet> = None;
 static mut TIMER: Option<*const dyn Timers> = None;
 

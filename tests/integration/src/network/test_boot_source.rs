@@ -1,13 +1,6 @@
 // Licensed under the Apache-2.0 license
 
 //! Integration test for the boot-source protocol over the network mailbox.
-//!
-//! Builds a truncated flash image (header + image headers only) and serves
-//! it via dnsmasq's TFTP server along with the firmware image file. The MCU
-//! ROM sends `InitiateBootRequest`, `ImageMetadataRequest`,
-//! `ImageDownloadRequest` + `ChunkAck` exchanges to download and verify the
-//! image, and `Finalize` to the Network CoP, which retrieves the TOC and
-//! firmware via DHCP + TFTP and verifies the protocol flow.
 
 #[cfg(test)]
 mod test {
@@ -20,19 +13,12 @@ mod test {
     use std::sync::{Arc, Mutex};
     use zerocopy::IntoBytes;
 
-    /// TAP network interface used by network tests.
     const TAP_INTERFACE: &str = "tap0";
-    /// IPv4 address assigned to the TAP interface (host side).
     const TAP_IP_ADDR: &str = "192.168.100.1";
-    /// TFTP boot filename — the truncated flash image containing the TOC.
     const TFTP_BOOT_FILENAME: &str = "toc.bin";
-    /// Test firmware image size advertised in the TOC.
     const TEST_IMAGE_SIZE: u32 = 4096;
 
     /// Build a TOC-only flash image (FlashHeader + ImageHeaders, no image data).
-    ///
-    /// Uses `TFTP_IMAGE_MAGIC_NUMBER` ("TFTP") so the firmware recognises it
-    /// as a TFTP-served TOC file.
     fn build_toc_image() -> Vec<u8> {
         let header_size = core::mem::size_of::<FlashHeader>();
         let img_hdr_size = core::mem::size_of::<ImageHeader>();

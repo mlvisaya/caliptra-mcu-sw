@@ -111,10 +111,6 @@ pub extern "C" fn exception_handler() {
     exit_emulator(0x01);
 }
 
-/// Run the boot-source provider application.
-///
-/// Initializes the lwIP network stack, creates the [`BootSourceApp`],
-/// and enters the main polling loop. Exits on completion or error.
 #[cfg(target_arch = "riscv32")]
 fn run_boot_source_app() {
     use network_app_boot_source::app::BootSourceApp;

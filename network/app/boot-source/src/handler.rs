@@ -33,7 +33,6 @@ const V6_FALLBACK_BOOT_FILE: &[u8] = b"boot.cfg\0";
 // Mailbox response helpers
 // ---------------------------------------------------------------------------
 
-/// Serialize a packet into u32 dwords and send it as a mailbox response.
 pub fn send_packet_response<'a, T, M>(mbox: &M, packet: &T) -> Result<()>
 where
     T: IntoBytes + Immutable + ?Sized,
@@ -50,7 +49,6 @@ where
     mbox.set_target_status(NetworkMboxStatus::CmdComplete)
 }
 
-/// Send an error response for the given response message type.
 pub fn send_error<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     msg_type: MessageType,
@@ -85,11 +83,7 @@ pub fn send_error<'a, M: NetworkMailbox<'a>>(
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// Handle `InitiateBootRequest`.
-///
-/// Performs DHCP to obtain an IP address and retrieves the boot file name
-/// and TFTP server IP. Stores boot flags and transitions to Ready state.
-/// The TOC fetch via TFTP is done separately after DHCP completes.
+/// Performs DHCP, TFTP TOC fetch, and sends `InitiateBootResponse`.
 pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -181,7 +175,6 @@ pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     send_packet_response(mbox, &resp)
 }
 
-/// Handle `ImageMetadataRequest`.
 pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -220,10 +213,7 @@ pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
     }
 }
 
-/// Handle `ImageDownloadRequest`.
-///
-/// Starts a TFTP GET for the requested firmware image and sends the first
-/// chunk (or a zero-payload header if data is not yet available).
+/// Starts a TFTP GET for the requested firmware and sends the first chunk.
 pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -257,10 +247,7 @@ pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
     send_packet_response(mbox, &hdr)
 }
 
-/// Handle `ChunkAck` during streaming.
-///
-/// Polls the network for more TFTP data, then sends the next chunk.
-/// Returns `true` in the second tuple element if this was the last chunk.
+/// Polls for TFTP data and sends the next chunk. Returns `true` if last chunk.
 pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -318,7 +305,6 @@ pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
     Ok(is_last)
 }
 
-/// Handle `Finalize`.
 pub fn handle_finalize<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -342,7 +328,7 @@ pub fn handle_finalize<'a, M: NetworkMailbox<'a>>(
 // DwordIterator
 // ---------------------------------------------------------------------------
 
-/// Iterator adapter that packs a byte stream into little-endian u32 dwords.
+/// Packs a byte stream into little-endian u32 dwords.
 pub(crate) struct DwordIterator<I: Iterator<Item = u8>> {
     inner: I,
     remaining: usize,
