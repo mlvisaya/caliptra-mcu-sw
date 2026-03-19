@@ -26,6 +26,9 @@ mod flash;
 #[cfg(all(target_arch = "riscv32", feature = "test-network-mbox-comm"))]
 mod network_mbox_test;
 
+#[cfg(all(target_arch = "riscv32", feature = "test-boot-source"))]
+mod boot_source_test;
+
 mod mcu_image_verifier;
 
 #[cfg(target_arch = "riscv32")]
