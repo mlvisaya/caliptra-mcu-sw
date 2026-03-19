@@ -104,7 +104,7 @@ unsafe extern "C" fn tftp_error_cb(
         } else {
             slice::from_raw_parts(msg as *const u8, size as usize)
         };
-        (s.ops.error)(err as i32, msg_bytes);
+        (s.ops.error)(err, msg_bytes);
         s.has_error = true;
         s.complete = true;
     }
@@ -124,6 +124,12 @@ static TFTP_CONTEXT: ffi::tftp_context = ffi::tftp_context {
 /// Place in a `static mut`; call `init()` then `get()` to download.
 pub struct BaremetalTftpClient {
     initialized: bool,
+}
+
+impl Default for BaremetalTftpClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BaremetalTftpClient {
@@ -173,7 +179,7 @@ impl BaremetalTftpClient {
 
         // Call open to get the handle
         let fname_ptr = filename.as_ptr() as *const c_char;
-        let mode_ptr = b"octet\0".as_ptr() as *const c_char;
+        let mode_ptr = c"octet".as_ptr();
         let handle = unsafe { tftp_open_cb(fname_ptr, mode_ptr, 1) };
         if handle.is_null() {
             return Err(LwipError::OutOfMemory);
@@ -230,7 +236,7 @@ impl BaremetalTftpClient {
 
         // Call open to get the handle
         let fname_ptr = filename.as_ptr() as *const c_char;
-        let mode_ptr = b"octet\0".as_ptr() as *const c_char;
+        let mode_ptr = c"octet".as_ptr();
         let handle = unsafe { tftp_open_cb(fname_ptr, mode_ptr, 1) };
         if handle.is_null() {
             return Err(LwipError::OutOfMemory);

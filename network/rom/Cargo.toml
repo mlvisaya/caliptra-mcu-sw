@@ -10,8 +10,11 @@ edition.workspace = true
 network-config.workspace = true
 
 [dependencies]
+critical-section.workspace = true
+network-app-boot-source.workspace = true
 network-app-rom-test = { workspace = true, optional = true }
 network-drivers.workspace = true
+network-hil.workspace = true
 
 [features]
 default = []
@@ -21,3 +24,4 @@ test-network-rom-lwip-dhcp6 = ["network-app-rom-test/lwip-dhcp6", "network-app-r
 test-network-rom-lwip-tftp = ["network-app-rom-test/lwip-tftp", "network-app-rom-test"]
 test-network-rom-lwip-tftpv6 = ["network-app-rom-test/lwip-tftpv6", "network-app-rom-test"]
 test-network-mbox-comm = ["network-app-rom-test/test-network-mbox-comm", "network-app-rom-test"]
+test-boot-source = []

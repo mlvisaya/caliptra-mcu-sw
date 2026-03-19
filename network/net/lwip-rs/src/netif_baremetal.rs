@@ -47,6 +47,12 @@ pub struct BaremetalNetIf {
     initialized: bool,
 }
 
+impl Default for BaremetalNetIf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BaremetalNetIf {
     /// Create an uninitialized `BaremetalNetIf`.
     pub const fn new() -> Self {
@@ -324,8 +330,8 @@ unsafe extern "C" fn baremetal_netif_init(netif: *mut ffi::netif) -> ffi::err_t 
     let callbacks = instance.callbacks.as_ref().unwrap();
     let mac = (callbacks.mac_addr)();
 
-    (*netif).name[0] = b'e';
-    (*netif).name[1] = b'n';
+    (*netif).name[0] = b'e' as core::ffi::c_char;
+    (*netif).name[1] = b'n' as core::ffi::c_char;
     (*netif).output = Some(ffi::etharp_output);
     #[cfg(feature = "baremetal-ipv6")]
     {

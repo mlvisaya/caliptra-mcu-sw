@@ -23,6 +23,17 @@ use core::arch::global_asm;
 
 use network_drivers::{exit_emulator, println};
 
+// Provide a critical-section implementation for single-threaded bare-metal use.
+mod cs_impl {
+    use critical_section::RawRestoreState;
+    struct SingleCoreCriticalSection;
+    critical_section::set_impl!(SingleCoreCriticalSection);
+    unsafe impl critical_section::Impl for SingleCoreCriticalSection {
+        unsafe fn acquire() -> RawRestoreState {}
+        unsafe fn release(_token: RawRestoreState) {}
+    }
+}
+
 // Include the startup assembly code
 #[cfg(target_arch = "riscv32")]
 global_asm!(include_str!("start.s"));
@@ -31,6 +42,7 @@ global_asm!(include_str!("start.s"));
 #[cfg(target_arch = "riscv32")]
 #[no_mangle]
 pub extern "C" fn main() -> ! {
+    #[allow(unused_imports)]
     use network_drivers::EthernetDriver;
 
     println!();
@@ -74,6 +86,21 @@ pub extern "C" fn main() -> ! {
         network_app_rom_test::network_mbox_test::run();
     }
 
+    // Default: run the boot-source application.
+    // When a test feature is active the test block above handles execution;
+    // otherwise the Network CoP serves boot-source protocol requests.
+    #[cfg(not(any(
+        feature = "test-network-rom-dhcp-discover",
+        feature = "test-network-rom-lwip-dhcp",
+        feature = "test-network-rom-lwip-dhcp6",
+        feature = "test-network-rom-lwip-tftp",
+        feature = "test-network-rom-lwip-tftpv6",
+        feature = "test-network-mbox-comm",
+    )))]
+    {
+        run_boot_source_app();
+    }
+
     exit_emulator(0x00);
 }
 
@@ -82,6 +109,44 @@ pub extern "C" fn main() -> ! {
 pub extern "C" fn exception_handler() {
     println!("EXCEPTION: Network ROM encountered an error!");
     exit_emulator(0x01);
+}
+
+#[cfg(target_arch = "riscv32")]
+fn run_boot_source_app() {
+    use network_app_boot_source::app::BootSourceApp;
+    use network_drivers::network_mbox::NetworkMboxDriver;
+    use network_drivers::{EthernetDriver, TimerDriver};
+
+    static mut ETH_STORAGE: Option<EthernetDriver> = None;
+    static mut TIMER_STORAGE: Option<TimerDriver> = None;
+    unsafe {
+        *core::ptr::addr_of_mut!(ETH_STORAGE) = Some(EthernetDriver::new());
+        *core::ptr::addr_of_mut!(TIMER_STORAGE) = Some(TimerDriver::new());
+    }
+    let eth_ref: &'static mut dyn network_hil::ethernet::Ethernet =
+        unsafe { (*core::ptr::addr_of_mut!(ETH_STORAGE)).as_mut().unwrap() };
+    let timer_ref: &'static dyn network_hil::timers::Timers =
+        unsafe { (*core::ptr::addr_of!(TIMER_STORAGE)).as_ref().unwrap() };
+
+    let driver = NetworkMboxDriver::new();
+    let app = BootSourceApp::new(&driver, 1024);
+
+    if let Err(e) = app.init(eth_ref, timer_ref) {
+        println!("[boot-src] ERROR: init failed: {:?}", e);
+        exit_emulator(0x01);
+    }
+
+    println!("[boot-src] Initialized, waiting for requests...");
+
+    match app.run_loop(50_000_000) {
+        Ok(()) => {
+            println!("[boot-src] Protocol complete");
+        }
+        Err(e) => {
+            println!("[boot-src] ERROR: run_loop failed: {:?}", e);
+            exit_emulator(0x01);
+        }
+    }
 }
 
 /// Panic handler for no_std environment
