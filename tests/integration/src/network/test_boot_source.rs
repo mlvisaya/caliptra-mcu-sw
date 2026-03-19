@@ -3,9 +3,11 @@
 //! Integration test for the boot-source protocol over the network mailbox.
 //!
 //! Builds a truncated flash image (header + image headers only) and serves
-//! it via dnsmasq's TFTP server. The MCU ROM sends `InitiateBootRequest`,
-//! `ImageMetadataRequest`, and `Finalize` to the Network CoP, which
-//! retrieves the TOC via DHCP + TFTP and verifies the protocol flow.
+//! it via dnsmasq's TFTP server along with the firmware image file. The MCU
+//! ROM sends `InitiateBootRequest`, `ImageMetadataRequest`,
+//! `ImageDownloadRequest` + `ChunkAck` exchanges to download and verify the
+//! image, and `Finalize` to the Network CoP, which retrieves the TOC and
+//! firmware via DHCP + TFTP and verifies the protocol flow.
 
 #[cfg(test)]
 mod test {
@@ -112,6 +114,11 @@ mod test {
         let toc_bytes = build_toc_image();
         std::fs::write(tftp_dir.join(TFTP_BOOT_FILENAME), &toc_bytes)
             .expect("Failed to write TOC file");
+
+        // Write the firmware image file referenced by the TOC.
+        let firmware_data: Vec<u8> = (0..TEST_IMAGE_SIZE as usize).map(|i| (i & 0xFF) as u8).collect();
+        std::fs::write(tftp_dir.join("mcu_rt.bin"), &firmware_data)
+            .expect("Failed to write firmware image file");
 
         // --- Start dnsmasq with DHCP + TFTP ---
         let server_options = ServerOptions {

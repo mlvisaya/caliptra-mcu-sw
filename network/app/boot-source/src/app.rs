@@ -120,11 +120,25 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
     ///
     /// Alternates between polling the mailbox driver for incoming
     /// requests and the lwIP network interface for packet processing.
-    pub fn run_loop(&self) -> ! {
-        loop {
+    ///
+    /// Returns `Ok(())` once the protocol completes (state transitions
+    /// through `Ready` back to `Idle` after `Finalize`).  Returns
+    /// `Err` if `max_polls` iterations are exhausted before completion.
+    pub fn run_loop(&self, max_polls: u32) -> Result<()> {
+        let mut seen_ready = false;
+        for _ in 0..max_polls {
             self.mbox.poll();
             network::poll();
+
+            let state = self.state.get();
+            if state == AppState::Ready {
+                seen_ready = true;
+            }
+            if seen_ready && state == AppState::Idle {
+                return Ok(());
+            }
         }
+        Err(NetworkMboxError::Timeout)
     }
 
     /// Get a mutable reference to the TOC.

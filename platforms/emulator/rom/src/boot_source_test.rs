@@ -12,13 +12,16 @@ Abstract:
 
     Sends InitiateBootRequest (triggering DHCP + TFTP TOC retrieval on
     the Network CoP), then ImageMetadataRequest for firmware ID 0x02
-    (MCU_RT), and finally Finalize to clean up.
+    (MCU_RT), then ImageDownloadRequest followed by ChunkAck exchanges
+    to download and verify the full firmware image, and finally Finalize
+    to clean up.
 
 --*/
 
 use core::cell::Cell;
 use boot_source_protocol::messages::{
-    BootFlags, FinalizeAck, FinalizeRequest, ImageMetadataRequest, ImageMetadataResponse,
+    BootFlags, ChunkAck, ChunkAckFlags, FinalizeAck, FinalizeRequest, ImageChunkHeader,
+    ImageDownloadRequest, ImageMetadataRequest, ImageMetadataResponse,
     InitiateBootRequest, InitiateBootResponse, MessageType, Status, FIRMWARE_ID_MCU_RT,
 };
 use network_drivers::network_mbox::NetworkMboxDriver;
@@ -42,6 +45,9 @@ enum Phase {
     WaitInitiateBootResponse,
     SendMetadataRequest,
     WaitMetadataResponse,
+    SendImageDownload,
+    WaitImageChunk,
+    SendChunkAck,
     SendFinalize,
     WaitFinalizeAck,
     Done,
@@ -52,6 +58,8 @@ struct BootSourceTestClient<'a> {
     driver: &'a NetworkMboxDriver<'a>,
     phase: Cell<Phase>,
     passed: Cell<bool>,
+    last_seq: Cell<u16>,
+    bytes_received: Cell<u32>,
 }
 
 impl<'a> BootSourceTestClient<'a> {
@@ -60,6 +68,8 @@ impl<'a> BootSourceTestClient<'a> {
             driver,
             phase: Cell::new(Phase::SendInitiateBoot),
             passed: Cell::new(true),
+            last_seq: Cell::new(0),
+            bytes_received: Cell::new(0),
         }
     }
 }
@@ -83,23 +93,17 @@ impl<'a> NetworkMailboxClient for BootSourceTestClient<'a> {
         rx_buf: &'static mut [u32],
         dlen: usize,
     ) {
-        // Copy SRAM dwords to a local byte buffer. The mailbox SRAM
-        // bus only supports word-aligned 32-bit reads.
-        const MAX_RESP: usize = 256;
-        let copy_len = dlen.min(MAX_RESP);
-        let mut local_buf = [0u8; MAX_RESP];
+        // Copy SRAM dwords to a local u32 buffer (guarantees alignment
+        // for zerocopy ref_from_prefix on structs with u32 fields).
+        // Must be large enough for ImageChunkHeader (12) + max payload (1024).
+        const MAX_RESP_DW: usize = 276; // 276 * 4 = 1104 bytes
+        let copy_len = dlen.min(MAX_RESP_DW * 4);
         let dw_len = copy_len.div_ceil(4);
+        let mut local_dw = [0u32; MAX_RESP_DW];
         for i in 0..dw_len {
-            let dw = rx_buf[i];
-            let base = i * 4;
-            let bytes = dw.to_le_bytes();
-            for j in 0..4 {
-                if base + j < copy_len {
-                    local_buf[base + j] = bytes[j];
-                }
-            }
+            local_dw[i] = rx_buf[i];
         }
-        let bytes = &local_buf[..copy_len];
+        let bytes = &local_dw.as_bytes()[..copy_len];
 
         match self.phase.get() {
             Phase::WaitInitiateBootResponse => {
@@ -108,7 +112,19 @@ impl<'a> NetworkMailboxClient for BootSourceTestClient<'a> {
             }
             Phase::WaitMetadataResponse => {
                 self.verify_metadata_response(status, bytes);
-                self.phase.set(Phase::SendFinalize);
+                self.phase.set(Phase::SendImageDownload);
+            }
+            Phase::WaitImageChunk => {
+                self.verify_image_chunk(status, bytes);
+                if self.bytes_received.get() >= EXPECTED_IMAGE_SIZE {
+                    romtime::println!(
+                        "[mcu-boot] Image download complete: {} bytes",
+                        self.bytes_received.get()
+                    );
+                    self.phase.set(Phase::SendFinalize);
+                } else {
+                    self.phase.set(Phase::SendChunkAck);
+                }
             }
             Phase::WaitFinalizeAck => {
                 self.verify_finalize_ack(status, bytes);
@@ -238,6 +254,80 @@ impl<'a> BootSourceTestClient<'a> {
 
         romtime::println!("[mcu-boot] FinalizeAck verified OK");
     }
+
+    fn verify_image_chunk(
+        &self,
+        status: NetworkMboxTargetStatus,
+        bytes: &[u8],
+    ) {
+        if status.status != NetworkMboxStatus::CmdComplete {
+            romtime::println!(
+                "[mcu-boot] FAILED: ImageChunk status {:?}",
+                status.status
+            );
+            self.passed.set(false);
+            return;
+        }
+        let hdr = match ImageChunkHeader::ref_from_prefix(bytes) {
+            Ok((h, _)) => h,
+            Err(_) => {
+                romtime::println!("[mcu-boot] FAILED: ImageChunkHeader too short");
+                self.passed.set(false);
+                return;
+            }
+        };
+        if hdr.message_type != MessageType::ImageChunk.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", hdr.message_type);
+            self.passed.set(false);
+            return;
+        }
+        if hdr.status != Status::Success.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: ImageChunk status {:#x}", hdr.status);
+            self.passed.set(false);
+            return;
+        }
+        let chunk_size = hdr.chunk_size as usize;
+        let expected_offset = self.bytes_received.get();
+        if hdr.offset != expected_offset {
+            romtime::println!(
+                "[mcu-boot] FAILED: offset={}, expected={}",
+                hdr.offset, expected_offset
+            );
+            self.passed.set(false);
+            return;
+        }
+        // Verify payload data matches expected pattern: (byte_index & 0xFF).
+        if chunk_size > 0 {
+            let payload_start = ImageChunkHeader::SIZE;
+            let payload_end = payload_start + chunk_size;
+            if bytes.len() < payload_end {
+                romtime::println!(
+                    "[mcu-boot] FAILED: response too short for chunk payload ({} < {})",
+                    bytes.len(), payload_end
+                );
+                self.passed.set(false);
+                return;
+            }
+            let payload = &bytes[payload_start..payload_end];
+            for (j, &byte) in payload.iter().enumerate() {
+                let expected = ((expected_offset as usize + j) & 0xFF) as u8;
+                if byte != expected {
+                    romtime::println!(
+                        "[mcu-boot] FAILED: data[{}]={:#x}, expected={:#x}",
+                        expected_offset as usize + j, byte, expected
+                    );
+                    self.passed.set(false);
+                    return;
+                }
+            }
+        }
+        self.last_seq.set(hdr.sequence_number);
+        self.bytes_received.set(expected_offset + chunk_size as u32);
+        romtime::println!(
+            "[mcu-boot] ImageChunk seq={} offset={} size={} OK",
+            hdr.sequence_number, hdr.offset, chunk_size
+        );
+    }
 }
 
 /// Convert a zerocopy packet's bytes into a dword iterator and byte length.
@@ -297,6 +387,37 @@ pub fn run() {
                     }
                 }
             }
+            Phase::SendImageDownload => {
+                let pkt = ImageDownloadRequest::new(TEST_FIRMWARE_ID);
+                let (data, dlen) = pkt_to_dwords(&pkt);
+                match driver.send_request(0, 0, data, dlen) {
+                    Ok(()) => {
+                        romtime::println!("[mcu-boot] ImageDownloadRequest sent");
+                        client.phase.set(Phase::WaitImageChunk);
+                    }
+                    Err(NetworkMboxError::Locked) => continue,
+                    Err(e) => {
+                        romtime::println!("[mcu-boot] FAILED: send error {:?}", e);
+                        return;
+                    }
+                }
+            }
+            Phase::SendChunkAck => {
+                let mut flags = ChunkAckFlags(0);
+                flags.set_ready_for_next(true);
+                let pkt = ChunkAck::new(TEST_FIRMWARE_ID, client.last_seq.get(), flags);
+                let (data, dlen) = pkt_to_dwords(&pkt);
+                match driver.send_request(0, 0, data, dlen) {
+                    Ok(()) => {
+                        client.phase.set(Phase::WaitImageChunk);
+                    }
+                    Err(NetworkMboxError::Locked) => continue,
+                    Err(e) => {
+                        romtime::println!("[mcu-boot] FAILED: send error {:?}", e);
+                        return;
+                    }
+                }
+            }
             Phase::SendFinalize => {
                 let pkt = FinalizeRequest::success();
                 let (data, dlen) = pkt_to_dwords(&pkt);
@@ -321,7 +442,8 @@ pub fn run() {
                 return;
             }
             _ => {
-                // WaitInitiateBootResponse, WaitMetadataResponse, or WaitFinalizeAck — just poll.
+                // WaitInitiateBootResponse, WaitMetadataResponse, WaitImageChunk,
+                // or WaitFinalizeAck — just poll.
                 driver.poll();
             }
         }

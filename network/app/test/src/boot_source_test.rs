@@ -13,17 +13,16 @@ Abstract:
     This test app creates a BootSourceApp with a real lwIP network stack,
     so the MCU's InitiateBootRequest triggers a full DHCP + TFTP flow to
     retrieve the TOC from the dnsmasq server set up by the integration
-    test. After the TOC is parsed, ImageMetadataRequest and Finalize
-    messages are exercised as before.
+    test. The app's run_loop() handles all protocol exchanges and returns
+    when the state transitions through Ready back to Idle after Finalize.
 
 --*/
 
-use network_app_boot_source::app::{AppState, BootSourceApp};
+use network_app_boot_source::app::BootSourceApp;
 use network_drivers::network_mbox::NetworkMboxDriver;
 use network_drivers::TimerDriver;
 use network_drivers::EthernetDriver;
 use network_drivers::{exit_emulator, println};
-use network_hil::network_mbox::NetworkMailbox;
 
 pub fn run(eth: EthernetDriver) {
     println!();
@@ -56,29 +55,14 @@ pub fn run(eth: EthernetDriver) {
 
     println!("[boot-src] Initialized, waiting for requests...");
 
-    // Poll until the app transitions through Ready (after InitiateBoot
-    // succeeds with DHCP + TFTP) and then returns to Idle (after Finalize).
-    let max_polls: u32 = 50_000_000;
-    let mut seen_ready = false;
-    let mut last_state = app.state();
-    for _ in 0..max_polls {
-        driver.poll();
-        network_app_boot_source::network::poll();
-
-        let state = app.state();
-        if state != last_state {
-            println!("[boot-src] State changed: {:?} -> {:?}", last_state, state);
-            last_state = state;
-        }
-        if state == AppState::Ready {
-            seen_ready = true;
-        }
-        if seen_ready && state == AppState::Idle {
+    match app.run_loop(50_000_000) {
+        Ok(()) => {
             println!("[boot-src] State returned to Idle — test PASSED!");
             exit_emulator(0x00);
         }
+        Err(e) => {
+            println!("[boot-src] ERROR: run_loop failed: {:?}", e);
+            exit_emulator(0x01);
+        }
     }
-
-    println!("[boot-src] ERROR: Timed out waiting for Finalize");
-    exit_emulator(0x01);
 }

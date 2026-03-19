@@ -58,6 +58,8 @@ pub enum NetworkMboxError {
     HardwareError,
     /// The operation failed.
     Failed,
+    /// The operation timed out.
+    Timeout,
 }
 
 pub type Result<T> = core::result::Result<T, NetworkMboxError>;
