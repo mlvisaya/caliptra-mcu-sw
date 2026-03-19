@@ -152,7 +152,7 @@ mod test {
             include_network_rom: true,
             rom_only: true,
             rom_feature: Some("test-boot-source"),
-            network_rom_feature: Some("test-boot-source"),
+            network_rom_feature: None,
             network_tap_device: Some(tap_device),
             ..Default::default()
         });
@@ -172,7 +172,7 @@ mod test {
 
             if !net_passed {
                 if let Some(net_output) = m.network_uart_output() {
-                    if net_output.contains("test PASSED!") {
+                    if net_output.contains("Protocol complete") {
                         net_passed = true;
                     }
                 }
@@ -191,7 +191,7 @@ mod test {
 
         assert!(
             net_passed,
-            "Network CoP should report boot source test PASSED"
+            "Network CoP should report protocol complete"
         );
 
         lock.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -3467,7 +3467,6 @@ name = "network-app-rom-test"
 version = "0.1.0"
 dependencies = [
  "lwip-rs",
- "network-app-boot-source",
  "network-drivers",
  "network-hil",
  "zerocopy",
@@ -3510,9 +3509,11 @@ name = "network-rom"
 version = "0.1.0"
 dependencies = [
  "critical-section",
+ "network-app-boot-source",
  "network-app-rom-test",
  "network-config",
  "network-drivers",
+ "network-hil",
 ]
 
 [[package]]
