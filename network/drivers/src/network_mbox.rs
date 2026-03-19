@@ -197,6 +197,15 @@ impl NetworkMboxDriver<'_> {
             DriverState::WaitingForExecuteClear => {
                 if !self.is_execute_set() {
                     self.state.set(DriverState::RxWait);
+                } else {
+                    // Execute is still set. If zeroization happened (clearing
+                    // our done bit) and the sender already re-set execute for a
+                    // new transaction, the done bit in target_status will be 0.
+                    // Detect this so we don't miss the new request.
+                    let ts = self.read_target_status();
+                    if !ts.done {
+                        self.state.set(DriverState::RxWait);
+                    }
                 }
             }
             _ => {}

@@ -381,13 +381,15 @@ pub fn start_tftp_get(server: &ServerAddr, filename: &[u8]) -> Result<(), Networ
 /// Poll the TFTP client (call `poll()` for the netif, then check status).
 ///
 /// Returns `true` when the TFTP transfer is complete (success or error).
+/// Delegates to the `BaremetalTftpClient` which tracks the `close` callback
+/// from lwIP (indicating the last TFTP data block was received).
 pub fn tftp_is_complete() -> bool {
-    LWIP.lock(|s| s.tftp_complete.get())
+    LWIP.lock(|s| s.tftp.borrow().is_complete())
 }
 
 /// Returns `true` if the TFTP transfer ended with an error.
 pub fn tftp_has_error() -> bool {
-    LWIP.lock(|s| s.tftp_has_error.get())
+    LWIP.lock(|s| s.tftp.borrow().has_error())
 }
 
 /// Take buffered TFTP data, copying up to `out.len()` bytes.

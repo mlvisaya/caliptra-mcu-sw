@@ -10,38 +10,36 @@ Abstract:
 
     MCU ROM test for the boot-source protocol via the network mailbox.
 
-    Sends an ImageMetadataRequest for firmware ID 0x02 (MCU_RT) and
-    verifies that the Network CoP responds with the expected image size.
-    Then sends a Finalize to clean up and verifies the FinalizeAck.
+    Sends InitiateBootRequest (triggering DHCP + TFTP TOC retrieval on
+    the Network CoP), then ImageMetadataRequest for firmware ID 0x02
+    (MCU_RT), and finally Finalize to clean up.
 
 --*/
 
 use core::cell::Cell;
+use boot_source_protocol::messages::{
+    BootFlags, FinalizeAck, FinalizeRequest, ImageMetadataRequest, ImageMetadataResponse,
+    InitiateBootRequest, InitiateBootResponse, MessageType, Status, FIRMWARE_ID_MCU_RT,
+};
 use network_drivers::network_mbox::NetworkMboxDriver;
 use network_hil::network_mbox::{
     NetworkMailbox, NetworkMailboxClient, NetworkMboxError, NetworkMboxStatus,
     NetworkMboxTargetStatus, Result,
 };
+use zerocopy::{FromBytes, IntoBytes};
 
-/// Firmware ID matching the Network CoP test TOC entry.
-const TEST_FIRMWARE_ID: u8 = 0x02;
-/// Expected image size matching the Network CoP test TOC entry.
+/// Firmware ID matching the TOC entry built by the integration test.
+const TEST_FIRMWARE_ID: u8 = FIRMWARE_ID_MCU_RT;
+/// Expected image size from the TOC.
 const EXPECTED_IMAGE_SIZE: u32 = 4096;
-
-// Message type bytes from the boot-source protocol.
-const MSG_TYPE_IMAGE_METADATA_REQUEST: u8 = 0x02;
-const MSG_TYPE_IMAGE_METADATA_RESPONSE: u8 = 0x82;
-const MSG_TYPE_FINALIZE: u8 = 0x05;
-const MSG_TYPE_FINALIZE_ACK: u8 = 0x85;
-
-/// Status codes.
-const STATUS_SUCCESS: u8 = 0x00;
 
 // -----------------------------------------------------------------------
 // Test phases
 // -----------------------------------------------------------------------
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
+    SendInitiateBoot,
+    WaitInitiateBootResponse,
     SendMetadataRequest,
     WaitMetadataResponse,
     SendFinalize,
@@ -49,7 +47,7 @@ enum Phase {
     Done,
 }
 
-/// Client that drives the two-phase test.
+/// Client that drives the multi-phase test.
 struct BootSourceTestClient<'a> {
     driver: &'a NetworkMboxDriver<'a>,
     phase: Cell<Phase>,
@@ -60,7 +58,7 @@ impl<'a> BootSourceTestClient<'a> {
     fn new(driver: &'a NetworkMboxDriver<'a>) -> Self {
         Self {
             driver,
-            phase: Cell::new(Phase::SendMetadataRequest),
+            phase: Cell::new(Phase::SendInitiateBoot),
             passed: Cell::new(true),
         }
     }
@@ -104,6 +102,10 @@ impl<'a> NetworkMailboxClient for BootSourceTestClient<'a> {
         let bytes = &local_buf[..copy_len];
 
         match self.phase.get() {
+            Phase::WaitInitiateBootResponse => {
+                self.verify_initiate_boot_response(status, bytes);
+                self.phase.set(Phase::SendMetadataRequest);
+            }
             Phase::WaitMetadataResponse => {
                 self.verify_metadata_response(status, bytes);
                 self.phase.set(Phase::SendFinalize);
@@ -124,6 +126,40 @@ impl<'a> NetworkMailboxClient for BootSourceTestClient<'a> {
 }
 
 impl<'a> BootSourceTestClient<'a> {
+    fn verify_initiate_boot_response(
+        &self,
+        status: NetworkMboxTargetStatus,
+        bytes: &[u8],
+    ) {
+        if status.status != NetworkMboxStatus::CmdComplete {
+            romtime::println!(
+                "[mcu-boot] FAILED: InitiateBootResponse status {:?}",
+                status.status
+            );
+            self.passed.set(false);
+            return;
+        }
+        let resp = match InitiateBootResponse::ref_from_prefix(bytes) {
+            Ok((r, _)) => r,
+            Err(_) => {
+                romtime::println!("[mcu-boot] FAILED: InitiateBootResponse too short");
+                self.passed.set(false);
+                return;
+            }
+        };
+        if resp.message_type != MessageType::InitiateBootResponse.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", resp.message_type);
+            self.passed.set(false);
+            return;
+        }
+        if resp.status != Status::Success.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: InitiateBootResponse status {:#x}", resp.status);
+            self.passed.set(false);
+            return;
+        }
+        romtime::println!("[mcu-boot] InitiateBootResponse verified OK");
+    }
+
     fn verify_metadata_response(
         &self,
         status: NetworkMboxTargetStatus,
@@ -137,35 +173,28 @@ impl<'a> BootSourceTestClient<'a> {
             self.passed.set(false);
             return;
         }
-
-        if bytes.len() < 2 {
-            romtime::println!("[mcu-boot] FAILED: response too short ({})", bytes.len());
+        let resp = match ImageMetadataResponse::ref_from_prefix(bytes) {
+            Ok((r, _)) => r,
+            Err(_) => {
+                romtime::println!("[mcu-boot] FAILED: ImageMetadataResponse too short");
+                self.passed.set(false);
+                return;
+            }
+        };
+        if resp.message_type != MessageType::ImageMetadataResponse.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", resp.message_type);
             self.passed.set(false);
             return;
         }
-
-        if bytes[0] != MSG_TYPE_IMAGE_METADATA_RESPONSE {
-            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", bytes[0]);
+        if resp.status != Status::Success.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: response status {:#x}", resp.status);
             self.passed.set(false);
             return;
         }
-        if bytes[1] != STATUS_SUCCESS {
-            romtime::println!("[mcu-boot] FAILED: response status {:#x}", bytes[1]);
-            self.passed.set(false);
-            return;
-        }
-
-        // image_size is at offset 4 (after msg_type:1, status:1, reserved:2).
-        if bytes.len() < 8 {
-            romtime::println!("[mcu-boot] FAILED: response too short for image_size");
-            self.passed.set(false);
-            return;
-        }
-        let image_size = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-        if image_size != EXPECTED_IMAGE_SIZE {
+        if resp.image_size != EXPECTED_IMAGE_SIZE {
             romtime::println!(
                 "[mcu-boot] FAILED: image_size={}, expected={}",
-                image_size,
+                resp.image_size,
                 EXPECTED_IMAGE_SIZE
             );
             self.passed.set(false);
@@ -188,19 +217,21 @@ impl<'a> BootSourceTestClient<'a> {
             self.passed.set(false);
             return;
         }
-
-        if bytes.len() < 2 {
-            romtime::println!("[mcu-boot] FAILED: FinalizeAck too short");
+        let ack = match FinalizeAck::ref_from_prefix(bytes) {
+            Ok((r, _)) => r,
+            Err(_) => {
+                romtime::println!("[mcu-boot] FAILED: FinalizeAck too short");
+                self.passed.set(false);
+                return;
+            }
+        };
+        if ack.message_type != MessageType::FinalizeAck.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", ack.message_type);
             self.passed.set(false);
             return;
         }
-        if bytes[0] != MSG_TYPE_FINALIZE_ACK {
-            romtime::println!("[mcu-boot] FAILED: unexpected msg_type {:#x}", bytes[0]);
-            self.passed.set(false);
-            return;
-        }
-        if bytes[1] != STATUS_SUCCESS {
-            romtime::println!("[mcu-boot] FAILED: FinalizeAck status {:#x}", bytes[1]);
+        if ack.status != Status::Success.as_u8() {
+            romtime::println!("[mcu-boot] FAILED: FinalizeAck status {:#x}", ack.status);
             self.passed.set(false);
             return;
         }
@@ -209,20 +240,16 @@ impl<'a> BootSourceTestClient<'a> {
     }
 }
 
-/// Build an ImageMetadataRequest as dwords.
-fn build_metadata_request() -> ([u32; 1], usize) {
-    // ImageMetadataRequest: msg_type(1) + firmware_id(1) + reserved(2) = 4 bytes = 1 dword.
-    let bytes: [u8; 4] = [MSG_TYPE_IMAGE_METADATA_REQUEST, TEST_FIRMWARE_ID, 0, 0];
-    ([u32::from_le_bytes(bytes)], 4)
-}
-
-/// Build a FinalizeRequest as dwords.
-fn build_finalize_request() -> ([u32; 2], usize) {
-    // FinalizeRequest: msg_type(1) + status(1) + error_code(2) + reserved(4) = 8 bytes.
-    let bytes: [u8; 8] = [MSG_TYPE_FINALIZE, STATUS_SUCCESS, 0, 0, 0, 0, 0, 0];
-    let dw0 = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let dw1 = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-    ([dw0, dw1], 8)
+/// Convert a zerocopy packet's bytes into a dword iterator and byte length.
+fn pkt_to_dwords<T: IntoBytes + zerocopy::Immutable>(pkt: &T) -> (impl Iterator<Item = u32> + '_, usize) {
+    let bytes = pkt.as_bytes();
+    let dlen = bytes.len();
+    let iter = bytes.chunks(4).map(|chunk| {
+        let mut dw = [0u8; 4];
+        dw[..chunk.len()].copy_from_slice(chunk);
+        u32::from_le_bytes(dw)
+    });
+    (iter, dlen)
 }
 
 pub fn run() {
@@ -240,9 +267,25 @@ pub fn run() {
 
     for _ in 0..max_polls {
         match client.phase.get() {
+            Phase::SendInitiateBoot => {
+                let pkt = InitiateBootRequest::new(1, BootFlags(0));
+                let (data, dlen) = pkt_to_dwords(&pkt);
+                match driver.send_request(0, 0, data, dlen) {
+                    Ok(()) => {
+                        romtime::println!("[mcu-boot] InitiateBootRequest sent");
+                        client.phase.set(Phase::WaitInitiateBootResponse);
+                    }
+                    Err(NetworkMboxError::Locked) => continue,
+                    Err(e) => {
+                        romtime::println!("[mcu-boot] FAILED: send error {:?}", e);
+                        return;
+                    }
+                }
+            }
             Phase::SendMetadataRequest => {
-                let (data, dlen) = build_metadata_request();
-                match driver.send_request(0, 0, data.iter().copied(), dlen) {
+                let pkt = ImageMetadataRequest::new(TEST_FIRMWARE_ID);
+                let (data, dlen) = pkt_to_dwords(&pkt);
+                match driver.send_request(0, 0, data, dlen) {
                     Ok(()) => {
                         romtime::println!("[mcu-boot] ImageMetadataRequest sent");
                         client.phase.set(Phase::WaitMetadataResponse);
@@ -255,8 +298,9 @@ pub fn run() {
                 }
             }
             Phase::SendFinalize => {
-                let (data, dlen) = build_finalize_request();
-                match driver.send_request(0, 0, data.iter().copied(), dlen) {
+                let pkt = FinalizeRequest::success();
+                let (data, dlen) = pkt_to_dwords(&pkt);
+                match driver.send_request(0, 0, data, dlen) {
                     Ok(()) => {
                         romtime::println!("[mcu-boot] FinalizeRequest sent");
                         client.phase.set(Phase::WaitFinalizeAck);
@@ -277,7 +321,7 @@ pub fn run() {
                 return;
             }
             _ => {
-                // WaitMetadataResponse or WaitFinalizeAck — just poll.
+                // WaitInitiateBootResponse, WaitMetadataResponse, or WaitFinalizeAck — just poll.
                 driver.poll();
             }
         }

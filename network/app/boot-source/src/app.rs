@@ -146,12 +146,16 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
     fn dispatch(&self, data: &[u8]) -> Result<()> {
         let msg_type_byte = match peek_message_type(data) {
             Some(b) => b,
-            None => return Err(NetworkMboxError::InvalidArgument),
+            None => {
+                return Err(NetworkMboxError::InvalidArgument);
+            }
         };
 
         let msg_type = match MessageType::from_u8(msg_type_byte) {
             Some(mt) => mt,
-            None => return Err(NetworkMboxError::InvalidArgument),
+            None => {
+                return Err(NetworkMboxError::InvalidArgument);
+            }
         };
 
         match (self.state.get(), msg_type) {

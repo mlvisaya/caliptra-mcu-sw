@@ -88,7 +88,8 @@ pub extern "C" fn main() -> ! {
 
     #[cfg(feature = "test-boot-source")]
     {
-        network_app_rom_test::boot_source_test::run();
+        let eth = EthernetDriver::new();
+        network_app_rom_test::boot_source_test::run(eth);
     }
 
     exit_emulator(0x00);

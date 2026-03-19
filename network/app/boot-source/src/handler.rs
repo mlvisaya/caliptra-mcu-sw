@@ -210,11 +210,13 @@ pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
             );
             send_packet_response(mbox, &resp)
         }
-        None => send_error(
-            mbox,
-            MessageType::ImageMetadataResponse,
-            ErrorCode::ImageNotFound,
-        ),
+        None => {
+            send_error(
+                mbox,
+                MessageType::ImageMetadataResponse,
+                ErrorCode::ImageNotFound,
+            )
+        }
     }
 }
 
