@@ -9,14 +9,11 @@
 //! `flash-image` crate: a [`FlashHeader`] followed by [`ImageHeader`]
 //! entries.
 
-use flash_image::{FlashHeader, ImageHeader};
+use flash_image::{FlashHeader, ImageHeader, MAX_FILENAME_LEN};
 use zerocopy::FromBytes;
 
 /// Maximum number of firmware images in the TOC.
 pub const MAX_TOC_ENTRIES: usize = 8;
-
-/// Maximum filename length for a TOC entry (null-terminated).
-pub const MAX_FILENAME_LEN: usize = 64;
 
 /// A single entry mapping a firmware ID to its TFTP filename and metadata.
 #[derive(Clone)]
