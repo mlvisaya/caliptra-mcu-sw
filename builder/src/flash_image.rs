@@ -3,7 +3,8 @@
 use anyhow::{anyhow, bail, Result};
 use flash_image::{
     FlashHeader, ImageHeader, CALIPTRA_FMC_RT_IDENTIFIER, FLASH_IMAGE_MAGIC_NUMBER, HEADER_VERSION,
-    MCU_RT_IDENTIFIER, SOC_IMAGES_BASE_IDENTIFIER, SOC_MANIFEST_IDENTIFIER,
+    MAX_FILENAME_LEN, MCU_RT_IDENTIFIER, SOC_IMAGES_BASE_IDENTIFIER, SOC_MANIFEST_IDENTIFIER,
+    TFTP_IMAGE_MAGIC_NUMBER,
 };
 use mcu_config_emulator::flash::{
     PartitionTable, StandAloneChecksumCalculator, IMAGE_A_PARTITION, IMAGE_B_PARTITION,
@@ -29,21 +30,28 @@ pub struct FlashImagePayload<'a> {
 pub struct FirmwareImage<'a> {
     pub identifier: u32,
     pub data: &'a [u8],
+    pub filename: [u8; MAX_FILENAME_LEN],
 }
 
 impl<'a> FirmwareImage<'a> {
-    pub fn new(identifier: u32, content: &'a [u8]) -> io::Result<Self> {
+    pub fn new(identifier: u32, content: &'a [u8], filename: Option<&[u8]>) -> io::Result<Self> {
+        let mut fname = [0u8; MAX_FILENAME_LEN];
+        if let Some(name) = filename {
+            let len = name.len().min(MAX_FILENAME_LEN);
+            fname[..len].copy_from_slice(&name[..len]);
+        }
         Ok(Self {
             identifier,
             data: content,
+            filename: fname,
         })
     }
 }
 
 impl<'a> FlashImage<'a> {
-    pub fn new(images: &'a [FirmwareImage<'a>], image_info: &'a [ImageHeader]) -> Self {
+    pub fn new(images: &'a [FirmwareImage<'a>], image_info: &'a [ImageHeader], magic: u32) -> Self {
         let mut header = FlashHeader {
-            magic: FLASH_IMAGE_MAGIC_NUMBER.into(),
+            magic: magic.into(),
             version: HEADER_VERSION,
             image_count: image_info.len() as u16,
             image_headers_offset: core::mem::size_of::<FlashHeader>() as u32,
@@ -68,6 +76,18 @@ impl<'a> FlashImage<'a> {
         }
         for image in self.payload.images {
             bytes.extend_from_slice(image.data);
+        }
+        bytes
+    }
+
+    /// Convert just the flash header and image headers to a byte vector
+    /// (no firmware data). Used for the TFTP TOC file where images are
+    /// downloaded individually.
+    pub fn to_toc_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(self.header.as_bytes());
+        for info in self.payload.image_info {
+            bytes.extend_from_slice(info.as_bytes());
         }
         bytes
     }
@@ -119,8 +139,8 @@ impl<'a> FlashImage<'a> {
         }
         let header = FlashHeader::read_from_bytes(&image[..HEADER_SIZE])
             .map_err(|_| anyhow!("Failed to parse header: invalid format or size"))?;
-        if header.magic != FLASH_IMAGE_MAGIC_NUMBER {
-            bail!("Invalid header: incorrect magic number or header version.");
+        if header.magic != FLASH_IMAGE_MAGIC_NUMBER && header.magic != TFTP_IMAGE_MAGIC_NUMBER {
+            bail!("Invalid header: incorrect magic number.");
         }
 
         if header.version != HEADER_VERSION {
@@ -208,19 +228,23 @@ pub fn flash_image_create(
     let content;
     if let Some(caliptra_fw_path) = caliptra_fw_path {
         content = load_file(caliptra_fw_path)?;
-        images.push(FirmwareImage::new(CALIPTRA_FMC_RT_IDENTIFIER, &content)?);
+        images.push(FirmwareImage::new(
+            CALIPTRA_FMC_RT_IDENTIFIER,
+            &content,
+            None,
+        )?);
     }
 
     let content;
     if let Some(soc_manifest_path) = soc_manifest_path {
         content = load_file(soc_manifest_path)?;
-        images.push(FirmwareImage::new(SOC_MANIFEST_IDENTIFIER, &content)?);
+        images.push(FirmwareImage::new(SOC_MANIFEST_IDENTIFIER, &content, None)?);
     }
 
     let content;
     if let Some(mcu_runtime_path) = mcu_runtime_path {
         content = load_file(mcu_runtime_path)?;
-        images.push(FirmwareImage::new(MCU_RT_IDENTIFIER, &content)?);
+        images.push(FirmwareImage::new(MCU_RT_IDENTIFIER, &content, None)?);
     }
 
     // Load SOC images into a buffer
@@ -235,13 +259,13 @@ pub fn flash_image_create(
     // Generate FirmwareImage from soc image buffer
     let mut soc_image_identifer = SOC_IMAGES_BASE_IDENTIFIER;
     for soc_img in soc_img_buffers.iter() {
-        images.push(FirmwareImage::new(soc_image_identifer, soc_img)?);
+        images.push(FirmwareImage::new(soc_image_identifer, soc_img, None)?);
         soc_image_identifer += 1;
     }
 
     let image_info = generate_image_info(images.clone());
 
-    let flash_image = FlashImage::new(&images, &image_info);
+    let flash_image = FlashImage::new(&images, &image_info, FLASH_IMAGE_MAGIC_NUMBER);
     flash_image.write_to_file(offset, output_path)?;
 
     Ok(())
@@ -256,6 +280,7 @@ pub fn generate_image_info(images: Vec<FirmwareImage>) -> Vec<ImageHeader> {
             identifier: image.identifier,
             offset,
             size: image.data.len() as u32,
+            filename: image.filename,
             image_checksum: calculate_checksum(image.data),
             image_header_checksum: 0,
         };
@@ -295,6 +320,7 @@ pub fn build_flash_image_bytes(
         images.push(FirmwareImage {
             identifier: CALIPTRA_FMC_RT_IDENTIFIER,
             data,
+            filename: [0u8; MAX_FILENAME_LEN],
         });
     }
 
@@ -302,6 +328,7 @@ pub fn build_flash_image_bytes(
         images.push(FirmwareImage {
             identifier: SOC_MANIFEST_IDENTIFIER,
             data,
+            filename: [0u8; MAX_FILENAME_LEN],
         });
     }
 
@@ -309,6 +336,7 @@ pub fn build_flash_image_bytes(
         images.push(FirmwareImage {
             identifier: MCU_RT_IDENTIFIER,
             data,
+            filename: [0u8; MAX_FILENAME_LEN],
         });
     }
 
@@ -317,7 +345,7 @@ pub fn build_flash_image_bytes(
     }
 
     let image_info = generate_image_info(images.clone());
-    let flash_image = FlashImage::new(&images, &image_info);
+    let flash_image = FlashImage::new(&images, &image_info, FLASH_IMAGE_MAGIC_NUMBER);
     flash_image.to_bytes()
 }
 
@@ -506,27 +534,32 @@ mod tests {
             FirmwareImage {
                 identifier: CALIPTRA_FMC_RT_IDENTIFIER,
                 data: b"Caliptra Firmware Data - ABCDEFGH",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
             FirmwareImage {
                 identifier: SOC_MANIFEST_IDENTIFIER,
                 data: b"Soc Manifest Data - 123456789",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
             FirmwareImage {
                 identifier: MCU_RT_IDENTIFIER,
                 data: b"MCU Runtime Data - QWERTYUI",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
             FirmwareImage {
                 identifier: SOC_IMAGES_BASE_IDENTIFIER,
                 data: b"Soc Image 1 Data - ZXCVBNMLKJ",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
             FirmwareImage {
                 identifier: SOC_IMAGES_BASE_IDENTIFIER + 1,
                 data: b"Soc Image 2 Data - POIUYTREWQ",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
         ];
         // Create a flash image from the mutable slice
         let image_info = generate_image_info(expected_images.to_vec());
-        let flash_image = FlashImage::new(&expected_images, &image_info);
+        let flash_image = FlashImage::new(&expected_images, &image_info, FLASH_IMAGE_MAGIC_NUMBER);
         flash_image
             .write_to_file(0, image_path)
             .expect("Failed to write flash image");
@@ -554,14 +587,16 @@ mod tests {
             FirmwareImage {
                 identifier: CALIPTRA_FMC_RT_IDENTIFIER,
                 data: b"Valid Caliptra Firmware Data",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
             FirmwareImage {
                 identifier: SOC_MANIFEST_IDENTIFIER,
                 data: b"Valid SOC Manifest Data",
+                filename: [0u8; MAX_FILENAME_LEN],
             },
         ];
         let image_info = generate_image_info(images.to_vec());
-        let flash_image = FlashImage::new(&images, &image_info);
+        let flash_image = FlashImage::new(&images, &image_info, FLASH_IMAGE_MAGIC_NUMBER);
         flash_image
             .write_to_file(0, image_path)
             .expect("Failed to write flash image");
