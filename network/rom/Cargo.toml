@@ -10,8 +10,11 @@ edition.workspace = true
 network-config.workspace = true
 
 [dependencies]
+critical-section.workspace = true
+network-app-boot-source.workspace = true
 network-app-rom-test = { workspace = true, optional = true }
 network-drivers.workspace = true
+network-hil.workspace = true
 
 [features]
 default = []
