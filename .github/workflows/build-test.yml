@@ -111,6 +111,11 @@ jobs:
           cargo xtask all-build --platform emulator \
             --runtime-features "${RUNTIME_FEATURES// /}" \
             --separate-runtimes
+          # Network boot requires a separate ROM build with its own ROM feature
+          cargo xtask all-build --platform emulator \
+            --rom-features "test-network-boot" \
+            --runtime-features "test-network-boot" \
+            --separate-runtimes
           sccache --show-stats
 
       - name: Upload firmware bundle
