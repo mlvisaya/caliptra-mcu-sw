@@ -575,6 +575,7 @@ impl BootFlow for ColdBoot {
         }
 
         // Network boot: download images from the Network CoP via the boot-source protocol.
+        #[cfg(feature = "network-boot")]
         if network_boot {
             use network_drivers::network_mbox::NetworkMboxDriver;
             use network_hil::network_mbox::NetworkMailbox;

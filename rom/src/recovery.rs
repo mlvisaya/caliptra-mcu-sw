@@ -1,6 +1,7 @@
 // Licensed under the Apache-2.0 license
 
 pub mod flash;
+#[cfg(feature = "network-boot")]
 pub mod network;
 
 use bitfield::bitfield;
