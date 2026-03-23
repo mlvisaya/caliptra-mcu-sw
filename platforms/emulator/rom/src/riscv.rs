@@ -202,6 +202,7 @@ pub extern "C" fn rom_entry() -> ! {
         #[cfg(feature = "test-boot-source")]
         crate::boot_source_test::run();
     } else if cfg!(feature = "test-network-boot") {
+        #[cfg(feature = "test-network-boot")]
         mcu_rom_common::rom_start(RomParameters {
             dot_flash,
             request_network_boot: true,

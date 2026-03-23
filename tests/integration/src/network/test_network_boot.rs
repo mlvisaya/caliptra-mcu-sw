@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 mod test {
-    use crate::test::{build_test_binaries, start_runtime_hw_model, TestParams, TEST_LOCK};
+    use crate::test::{build_test_binaries, start_runtime_hw_model, TestBinaries, TestParams, TEST_LOCK};
     use emulator_periph::LinuxTapDevice;
     use flash_image::{
         CALIPTRA_FMC_RT_IDENTIFIER, MCU_RT_IDENTIFIER, SOC_MANIFEST_IDENTIFIER,
@@ -55,6 +55,15 @@ mod test {
             .expect("Failed to write TOC file");
     }
 
+    fn get_test_binaries(feature: Option<&str>, network_rom_feature: Option<&str>, rom_feature: Option<&str>) -> TestBinaries {
+        let check_feature = feature.or(rom_feature).unwrap_or("");
+        if crate::test::has_prebuilt_binaries(check_feature) {
+            let binaries = mcu_builder::FirmwareBinaries::from_env().expect("CPTRA_FIRMWARE_BUNDLE not set");
+            return crate::test::prebuilt_binaries(feature, network_rom_feature, rom_feature, binaries);
+        }
+        build_test_binaries(feature, network_rom_feature, rom_feature)
+    }
+
     #[test]
     #[cfg_attr(feature = "fpga_realtime", ignore)]
     fn test_network_boot() {
@@ -84,7 +93,7 @@ mod test {
         }
 
         // --- Build firmware via the common test infrastructure ---
-        let binaries = build_test_binaries(None, None, Some("test-network-boot"));
+        let binaries = get_test_binaries(Some("test-network-boot"), None, Some("test-network-boot"));
 
         // --- Write TFTP content (TOC + firmware files) ---
         let tftp_dir = std::env::temp_dir().join("network-boot-tftp-test");
@@ -145,7 +154,6 @@ mod test {
         const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
         let deadline = std::time::Instant::now() + TIMEOUT;
         let mut last_net_len: usize = 0;
-        let mut last_mcu_len: usize = 0;
 
         hw.step_until(|m| {
             // Print new network CPU output as it arrives.
@@ -156,16 +164,10 @@ mod test {
                 }
             }
 
-            let cp = m.mci_boot_checkpoint();
-            let target: u16 = McuRomBootStatus::ColdBootFlowComplete.into();
-            let is_network_complete = cp == target;
-/*
-            is_network_complete
-                || m.mci_fw_fatal_error().is_some()
-                || m.cycle_count() >= MAX_CYCLES
-                || std::time::Instant::now() >= deadline
-*/
-            false
+            m.mci_fw_fatal_error().is_some()
+            || m.cycle_count() >= MAX_CYCLES
+            || std::time::Instant::now() >= deadline
+
         });
 
         let checkpoint = hw.mci_boot_checkpoint();

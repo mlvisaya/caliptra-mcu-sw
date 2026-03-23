@@ -192,9 +192,10 @@ mod test {
         pub(crate) network_rom: Vec<u8>,
     }
 
-    fn prebuilt_binaries(
+    pub(crate) fn prebuilt_binaries(
         feature: Option<&str>,
         network_rom_feature: Option<&str>,
+        rom_feature: Option<&str>,
         binaries: &'static FirmwareBinaries,
     ) -> TestBinaries {
         let mut test_binaries = TestBinaries {
@@ -218,6 +219,11 @@ mod test {
             );
             test_binaries.soc_manifest = binaries.test_soc_manifest(feature).expect(&err).clone();
             test_binaries.mcu_runtime = binaries.test_runtime(feature).expect(&err).clone();
+        }
+
+        // check for prebuilt ROM with feature
+        if let Some(rf) = rom_feature {
+            test_binaries.mcu_rom = binaries.test_feature_rom(rf);
         }
 
         // check for prebuilt network ROM with feature
@@ -308,8 +314,8 @@ mod test {
             mcu_runtime,
             network_rom,
         } = match FirmwareBinaries::from_env() {
-            Ok(binaries) if params.rom_feature.is_none() => {
-                prebuilt_binaries(params.feature, params.network_rom_feature, binaries)
+            Ok(binaries) => {
+                prebuilt_binaries(params.feature, params.network_rom_feature, params.rom_feature, binaries)
             }
             _ => {
                 println!("Could not find prebuilt firmware binaries, building firmware...");
