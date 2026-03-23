@@ -233,6 +233,8 @@ pub struct InitParams<'a> {
     pub caliptra_soc_axi_user: Option<u32>,
 
     pub flash_boot: bool,
+
+    pub network_boot: bool,
 }
 
 impl InitParams<'_> {
@@ -305,6 +307,7 @@ impl Default for InitParams<'_> {
             check_booted_to_runtime: true,
             caliptra_soc_axi_user: None,
             flash_boot: false,
+            network_boot: false,
         }
     }
 }
