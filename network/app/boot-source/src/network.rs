@@ -14,7 +14,7 @@ use network_hil::timers::Timers;
 /// Maximum chunk size for TFTP data buffering.
 /// Data received from TFTP callbacks is stored here until the MCU
 /// pulls it via ChunkAck.
-pub const TFTP_CHUNK_BUF_SIZE: usize = 4096;
+pub const TFTP_CHUNK_BUF_SIZE: usize = 8192;
 
 /// Errors from network operations.
 #[derive(Debug)]
@@ -50,6 +50,9 @@ struct LwipState {
     chunk_buf_len: Cell<usize>,
     tftp_complete: Cell<bool>,
     tftp_has_error: Cell<bool>,
+    tftp_write_count: Cell<u32>,
+    tftp_close_count: Cell<u32>,
+    tftp_total_bytes: Cell<usize>,
 }
 
 impl LwipState {
@@ -62,6 +65,9 @@ impl LwipState {
             chunk_buf_len: Cell::new(0),
             tftp_complete: Cell::new(false),
             tftp_has_error: Cell::new(false),
+            tftp_write_count: Cell::new(0),
+            tftp_close_count: Cell::new(0),
+            tftp_total_bytes: Cell::new(0),
         }
     }
 }
@@ -211,6 +217,16 @@ pub fn poll() {
     });
 }
 
+/// Poll the network interface, processing at most `max_packets` received
+/// frames. Useful during TFTP streaming to prevent buffer overflow.
+pub fn poll_limited(max_packets: usize) {
+    LWIP.lock(|s| {
+        if s.initialized.get() {
+            s.netif.borrow_mut().poll_limited(max_packets);
+        }
+    });
+}
+
 /// Shut down the network interface.
 pub fn shutdown() {
     LWIP.lock(|s| {
@@ -222,7 +238,52 @@ pub fn shutdown() {
 }
 
 // ---------------------------------------------------------------------------
-// DHCP
+// DHCP (non-blocking / incremental)
+// ---------------------------------------------------------------------------
+
+/// Start DHCPv4 discovery. Call [`dhcp_has_address`] from the main loop
+/// to check when an address has been obtained.
+pub fn start_dhcp() -> Result<(), NetworkError> {
+    LWIP.lock(|s| {
+        s.netif
+            .borrow_mut()
+            .dhcp_start()
+            .map_err(|_| NetworkError::DhcpFailed)
+    })
+}
+
+/// Returns true when DHCPv4 has obtained an IP address.
+pub fn dhcp_has_address() -> bool {
+    LWIP.lock(|s| s.netif.borrow().dhcp_has_address())
+}
+
+/// Extract the DHCP result (server IP, boot file) after [`dhcp_has_address`]
+/// returns true. Returns `None` if no boot file was provided.
+pub fn take_dhcp_result() -> Option<DhcpResult> {
+    LWIP.lock(|s| {
+        let netif = s.netif.borrow();
+
+        let server_ip = netif.dhcp_server_ip();
+        let boot_file_slice = netif.dhcp_boot_file_name();
+
+        if boot_file_slice.is_empty() {
+            return None;
+        }
+
+        let mut boot_file = [0u8; 128];
+        let len = boot_file_slice.len().min(127);
+        boot_file[..len].copy_from_slice(&boot_file_slice[..len]);
+
+        Some(DhcpResult {
+            server_ip: ServerAddr::V4(server_ip),
+            boot_file,
+            boot_file_len: len,
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// DHCP (blocking — for non-emulated platforms)
 // ---------------------------------------------------------------------------
 
 /// DHCP results extracted after a successful handshake.
@@ -331,6 +392,7 @@ pub fn init_tftp() -> Result<(), NetworkError> {
             .init(BaremetalTftpOps {
                 write: tftp_write_cb,
                 error: tftp_error_cb,
+                close: Some(tftp_close_notify),
             })
             .map_err(|_| NetworkError::TftpInitFailed)
     })
@@ -395,13 +457,29 @@ pub fn tftp_buffered_len() -> usize {
     LWIP.lock(|s| s.chunk_buf_len.get())
 }
 
-/// Clean up TFTP client state.
+/// Reset TFTP buffer and counter state between image transfers,
+/// without deinitializing the TFTP client (so it can be reused).
+pub fn reset_tftp_state() {
+    LWIP.lock(|s| {
+        s.chunk_buf_len.set(0);
+        s.tftp_complete.set(false);
+        s.tftp_has_error.set(false);
+        s.tftp_write_count.set(0);
+        s.tftp_close_count.set(0);
+        s.tftp_total_bytes.set(0);
+    });
+}
+
+/// Clean up TFTP client state (full teardown, requires re-init before reuse).
 pub fn cleanup_tftp() {
     LWIP.lock(|s| {
         s.tftp.borrow_mut().cleanup();
         s.chunk_buf_len.set(0);
         s.tftp_complete.set(false);
         s.tftp_has_error.set(false);
+        s.tftp_write_count.set(0);
+        s.tftp_close_count.set(0);
+        s.tftp_total_bytes.set(0);
     });
 }
 
@@ -411,6 +489,8 @@ pub fn cleanup_tftp() {
 
 fn tftp_write_cb(data: &[u8]) -> bool {
     LWIP.lock(|s| {
+        s.tftp_write_count.set(s.tftp_write_count.get() + 1);
+        s.tftp_total_bytes.set(s.tftp_total_bytes.get() + data.len());
         let buf_len = s.chunk_buf_len.get();
         let space = TFTP_CHUNK_BUF_SIZE - buf_len;
         if data.len() > space {
@@ -429,4 +509,17 @@ fn tftp_error_cb(_err: i32, _msg: &[u8]) {
         s.tftp_has_error.set(true);
         s.tftp_complete.set(true);
     });
+}
+
+fn tftp_close_notify() {
+    LWIP.lock(|s| {
+        s.tftp_close_count.set(s.tftp_close_count.get() + 1);
+    });
+}
+
+/// Debug info about TFTP state.
+pub fn tftp_debug_info() -> (u32, u32, usize) {
+    LWIP.lock(|s| {
+        (s.tftp_write_count.get(), s.tftp_close_count.get(), s.tftp_total_bytes.get())
+    })
 }

@@ -83,7 +83,31 @@ pub fn send_error<'a, M: NetworkMailbox<'a>>(
 // Handlers
 // ---------------------------------------------------------------------------
 
+/// Parse the InitiateBootRequest, save boot flags, and start DHCP.
+///
+/// The actual DHCP polling and TFTP TOC download happen incrementally in
+/// the main loop. This avoids blocking inside a mailbox callback where
+/// the emulator cannot process ethernet RX.
+pub fn handle_initiate_boot_start(
+    data: &[u8],
+    boot_flags: &core::cell::Cell<BootFlags>,
+) -> Result<()> {
+    let req: &InitiateBootRequest = match parse_fixed(data) {
+        Some(r) => r,
+        None => return Err(NetworkMboxError::InvalidArgument),
+    };
+
+    boot_flags.set(req.flags);
+    network::start_dhcp().map_err(|_| NetworkMboxError::Failed)?;
+    Ok(())
+}
+
 /// Performs DHCP, TFTP TOC fetch, and sends `InitiateBootResponse`.
+///
+/// **NOTE**: This function blocks inside the caller's context (e.g. a
+/// mailbox callback) and cannot receive ethernet RX packets on emulated
+/// platforms. Prefer the async variant: [`handle_initiate_boot_start`]
+/// paired with `poll_dhcp` / `poll_tftp_toc` in the main loop.
 pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
@@ -215,33 +239,31 @@ pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
     mbox: &M,
     data: &[u8],
     toc: &Toc,
-    dhcp_result: &network::DhcpResult,
     seq: &core::cell::Cell<u16>,
     offset: &core::cell::Cell<u32>,
-) -> Result<()> {
+) -> core::result::Result<u8, NetworkMboxError> {
     let req: &ImageDownloadRequest = match parse_fixed(data) {
         Some(r) => r,
-        None => return send_error(mbox, MessageType::ImageChunk, ErrorCode::InvalidParameters),
+        None => {
+            let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::InvalidParameters);
+            return Err(NetworkMboxError::InvalidArgument);
+        }
     };
 
-    let entry = match toc.find(req.firmware_id) {
-        Some(e) => e,
-        None => return send_error(mbox, MessageType::ImageChunk, ErrorCode::ImageNotFound),
-    };
+    if toc.find(req.firmware_id).is_none() {
+        let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::ImageNotFound);
+        return Err(NetworkMboxError::InvalidArgument);
+    }
 
     seq.set(0);
     offset.set(0);
 
-    // Start TFTP GET for this image.
-    let fname = &entry.filename[..entry.filename_len + 1]; // null-terminated
-    network::start_tftp_get(&dhcp_result.server_ip, fname).map_err(|_| {
-        let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::SourceNotReady);
-        NetworkMboxError::Failed
-    })?;
-
     // Send an initial zero-payload header to acknowledge the download started.
+    // TFTP GET is deferred to poll_chunk_data to avoid filling the buffer
+    // before the MCU can drain it.
     let hdr = ImageChunkHeader::new(0, 0, 0);
-    send_packet_response(mbox, &hdr)
+    send_packet_response(mbox, &hdr)?;
+    Ok(req.firmware_id)
 }
 
 /// Polls for TFTP data and sends the next chunk. Returns `true` if last chunk.
@@ -299,7 +321,60 @@ pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
     offset.set(o.wrapping_add(chunk_len as u32));
 
     if is_last {
-        network::cleanup_tftp();
+        network::reset_tftp_state();
+    }
+
+    Ok(is_last)
+}
+
+/// Validate a ChunkAck without sending a response.
+/// Returns `Ok(())` if the ack is valid.
+pub fn validate_chunk_ack(data: &[u8]) -> Result<()> {
+    let _ack: &ChunkAck = match parse_fixed(data) {
+        Some(a) => a,
+        None => return Err(NetworkMboxError::InvalidArgument),
+    };
+    Ok(())
+}
+
+/// Send the next TFTP chunk via the mailbox. Returns `true` if this was the last chunk.
+pub fn send_next_chunk<'a, M: NetworkMailbox<'a>>(
+    mbox: &M,
+    max_chunk_size: usize,
+    seq: &core::cell::Cell<u16>,
+    offset: &core::cell::Cell<u32>,
+) -> core::result::Result<bool, NetworkMboxError> {
+    if network::tftp_has_error() {
+        let _ = send_error(mbox, MessageType::ImageChunk, ErrorCode::CorruptedData);
+        return Err(NetworkMboxError::Failed);
+    }
+
+    let s = seq.get();
+    let o = offset.get();
+
+    let mut chunk_buf = [0u8; 4096];
+    let chunk_max = max_chunk_size.min(chunk_buf.len());
+    let chunk_len = network::take_tftp_chunk(&mut chunk_buf[..chunk_max]);
+
+    let is_last = network::tftp_is_complete() && network::tftp_buffered_len() == 0;
+
+    let hdr = ImageChunkHeader::new(s, o, chunk_len as u32);
+    let hdr_bytes = hdr.as_bytes();
+    let total_len = ImageChunkHeader::SIZE + chunk_len;
+
+    let combined_iter = hdr_bytes
+        .iter()
+        .chain(chunk_buf[..chunk_len].iter())
+        .copied();
+    let dw_iter = DwordIterator::new(combined_iter, total_len);
+    mbox.send_response(dw_iter, total_len)?;
+    mbox.set_target_status(NetworkMboxStatus::CmdComplete)?;
+
+    seq.set(s.wrapping_add(1));
+    offset.set(o.wrapping_add(chunk_len as u32));
+
+    if is_last {
+        network::reset_tftp_state();
     }
 
     Ok(is_last)

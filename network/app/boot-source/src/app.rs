@@ -22,10 +22,16 @@ use crate::toc::Toc;
 pub enum AppState {
     /// Waiting for InitiateBootRequest.
     Idle,
+    /// DHCP is in progress. Polling until an address is obtained.
+    DhcpInProgress,
+    /// DHCP done, TFTP TOC download in progress.
+    TftpTocInProgress,
     /// DHCP and TOC fetch completed. Ready to serve image requests.
     Ready,
-    /// Currently streaming image chunks for an active TFTP download.
+    /// TFTP GET for image started; waiting for first data or an ack to serve.
     Streaming,
+    /// ChunkAck received; polling for TFTP data to send the next chunk.
+    ChunkPending,
 }
 
 pub struct BootSourceApp<'a, M: NetworkMailbox<'a>> {
@@ -42,6 +48,8 @@ pub struct BootSourceApp<'a, M: NetworkMailbox<'a>> {
     /// Maximum payload bytes per chunk (based on mailbox SRAM size).
     max_chunk_size: usize,
     dhcp_result: UnsafeCell<Option<network::DhcpResult>>,
+    /// Whether the TFTP GET for the current image has been started.
+    tftp_started: Cell<bool>,
 }
 
 impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
@@ -56,6 +64,7 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
             transfer_offset: Cell::new(0),
             max_chunk_size,
             dhcp_result: UnsafeCell::new(None),
+            tftp_started: Cell::new(false),
         }
     }
 
@@ -76,14 +85,39 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         let mut seen_ready = false;
         for _ in 0..max_polls {
             self.mbox.poll();
-            network::poll();
 
+            // During TFTP streaming, limit RX to prevent buffer overflow.
+            // Only receive when there's room for at least one TFTP block.
             let state = self.state.get();
-            if state == AppState::Ready {
-                seen_ready = true;
+            if state == AppState::ChunkPending || state == AppState::Streaming {
+                let space = network::TFTP_CHUNK_BUF_SIZE.saturating_sub(network::tftp_buffered_len());
+                if space >= 512 {
+                    network::poll_limited(1);
+                } else {
+                    // Buffer near-full: only process lwIP timers, skip RX.
+                    network::poll_limited(0);
+                }
+            } else {
+                network::poll();
             }
-            if seen_ready && state == AppState::Idle {
-                return Ok(());
+
+            match state {
+                AppState::DhcpInProgress => {
+                    self.poll_dhcp();
+                }
+                AppState::TftpTocInProgress => {
+                    self.poll_tftp_toc();
+                }
+                AppState::ChunkPending => {
+                    self.poll_chunk_data();
+                }
+                AppState::Ready => {
+                    seen_ready = true;
+                }
+                AppState::Idle if seen_ready => {
+                    return Ok(());
+                }
+                _ => {}
             }
         }
         Err(NetworkMboxError::Timeout)
@@ -99,6 +133,175 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
 
     fn toc_ref(&self) -> &Toc {
         unsafe { &*self.toc.get() }
+    }
+
+    fn dhcp_result_ref(&self) -> &Option<network::DhcpResult> {
+        unsafe { &*self.dhcp_result.get() }
+    }
+
+    fn dhcp_result_mut(&self) -> &mut Option<network::DhcpResult> {
+        unsafe { &mut *self.dhcp_result.get() }
+    }
+
+    /// Poll DHCP progress. Called each iteration of `run_loop` while in
+    /// `DhcpInProgress`. When an address is obtained, starts the TFTP TOC
+    /// download and transitions to `TftpTocInProgress`.
+    fn poll_dhcp(&self) {
+        if network::dhcp_has_address() {
+            network_drivers::println!("[boot-src] DHCP complete");
+            let result = match network::take_dhcp_result() {
+                Some(r) => r,
+                None => {
+                    let _ = handler::send_error(
+                        self.mbox,
+                        MessageType::InitiateBootResponse,
+                        ErrorCode::SourceNotReady,
+                    );
+                    self.state.set(AppState::Idle);
+                    return;
+                }
+            };
+
+            // Initialize TFTP client.
+            if network::init_tftp().is_err() {
+                let _ = handler::send_error(
+                    self.mbox,
+                    MessageType::InitiateBootResponse,
+                    ErrorCode::SourceNotReady,
+                );
+                self.state.set(AppState::Idle);
+                return;
+            }
+
+            // Start TFTP GET for the TOC/boot file.
+            let mut fname_buf = [0u8; 128];
+            let len = result.boot_file_len.min(127);
+            fname_buf[..len].copy_from_slice(&result.boot_file[..len]);
+            fname_buf[len] = 0;
+
+            if network::start_tftp_get(&result.server_ip, &fname_buf[..len + 1]).is_err() {
+                let _ = handler::send_error(
+                    self.mbox,
+                    MessageType::InitiateBootResponse,
+                    ErrorCode::SourceNotReady,
+                );
+                self.state.set(AppState::Idle);
+                return;
+            }
+
+            *self.dhcp_result_mut() = Some(result);
+            self.state.set(AppState::TftpTocInProgress);
+        }
+    }
+
+    /// Poll TFTP TOC download progress. Called each iteration of `run_loop`
+    /// while in `TftpTocInProgress`. When the download completes, parses
+    /// the TOC and sends `InitiateBootResponse`.
+    fn poll_tftp_toc(&self) {
+        if network::tftp_has_error() {
+            let _ = handler::send_error(
+                self.mbox,
+                MessageType::InitiateBootResponse,
+                ErrorCode::SourceNotReady,
+            );
+            self.state.set(AppState::Idle);
+            return;
+        }
+
+        if !network::tftp_is_complete() {
+            return;
+        }
+
+        // Read and parse the TOC.
+        let mut toc_buf = [0u8; network::TFTP_CHUNK_BUF_SIZE];
+        let toc_len = network::take_tftp_chunk(&mut toc_buf);
+        if !self.toc_mut().parse(&toc_buf[..toc_len]) {
+            let _ = handler::send_error(
+                self.mbox,
+                MessageType::InitiateBootResponse,
+                ErrorCode::CorruptedData,
+            );
+            self.state.set(AppState::Idle);
+            return;
+        }
+
+        let resp = InitiateBootResponse::new(Status::Success);
+        let _ = handler::send_packet_response(self.mbox, &resp);
+        self.state.set(AppState::Ready);
+    }
+
+    /// Poll for TFTP image data after a ChunkAck. Called each iteration of
+    /// `run_loop` while in `ChunkPending`. When data is available, sends the
+    /// next chunk response and transitions back to `Streaming` (or `Ready`
+    /// if it was the last chunk).
+    fn poll_chunk_data(&self) {
+        // Start the TFTP GET on the first poll after ImageDownloadRequest.
+        // This is deferred from handle_image_download to avoid filling the
+        // TFTP buffer while the MCU processes the zero-payload header.
+        if !self.tftp_started.get() {
+            let entry = match self.toc_ref().find(self.active_firmware_id.get()) {
+                Some(e) => e,
+                None => {
+                    let _ = handler::send_error(
+                        self.mbox,
+                        MessageType::ImageChunk,
+                        ErrorCode::ImageNotFound,
+                    );
+                    self.state.set(AppState::Ready);
+                    return;
+                }
+            };
+            let dhcp = self.dhcp_result_ref();
+            let dhcp = match dhcp.as_ref() {
+                Some(d) => d,
+                None => {
+                    let _ = handler::send_error(
+                        self.mbox,
+                        MessageType::ImageChunk,
+                        ErrorCode::SourceNotReady,
+                    );
+                    self.state.set(AppState::Ready);
+                    return;
+                }
+            };
+            let fname = &entry.filename[..entry.filename_len + 1];
+            if network::start_tftp_get(&dhcp.server_ip, fname).is_err() {
+                let _ = handler::send_error(
+                    self.mbox,
+                    MessageType::ImageChunk,
+                    ErrorCode::SourceNotReady,
+                );
+                self.state.set(AppState::Ready);
+                return;
+            }
+            self.tftp_started.set(true);
+            return; // Let the next poll iteration check for data.
+        }
+
+        // Check if TFTP data is available or complete.
+        if network::tftp_buffered_len() == 0 && !network::tftp_is_complete() {
+            return; // No data yet, keep polling.
+        }
+
+        match handler::send_next_chunk(
+            self.mbox,
+            self.max_chunk_size,
+            &self.sequence_number,
+            &self.transfer_offset,
+        ) {
+            Ok(true) => {
+                // Last chunk sent — go back to Ready for more images.
+                self.state.set(AppState::Ready);
+            }
+            Ok(false) => {
+                // More data to send — wait for next ChunkAck.
+                self.state.set(AppState::Streaming);
+            }
+            Err(_) => {
+                // Error sending chunk — reset.
+                self.state.set(AppState::Ready);
+            }
+        }
     }
 
     fn dispatch(&self, data: &[u8]) -> Result<()> {
@@ -118,45 +321,33 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
 
         match (self.state.get(), msg_type) {
             (AppState::Idle, MessageType::InitiateBootRequest) => {
-                let dhcp = unsafe { &mut *self.dhcp_result.get() };
-                handler::handle_initiate_boot(
-                    self.mbox,
-                    data,
-                    &self.boot_flags,
-                    self.toc_mut(),
-                    dhcp,
-                )?;
-                self.state.set(AppState::Ready);
+                handler::handle_initiate_boot_start(data, &self.boot_flags)?;
+                self.state.set(AppState::DhcpInProgress);
                 Ok(())
             }
             (AppState::Ready, MessageType::ImageMetadataRequest) => {
                 handler::handle_image_metadata(self.mbox, data, self.toc_ref())
             }
             (AppState::Ready, MessageType::ImageDownloadRequest) => {
-                let dhcp = unsafe { &*self.dhcp_result.get() };
-                let dhcp = dhcp.as_ref().ok_or(NetworkMboxError::Failed)?;
-                handler::handle_image_download(
+                let fw_id = handler::handle_image_download(
                     self.mbox,
                     data,
                     self.toc_ref(),
-                    dhcp,
                     &self.sequence_number,
                     &self.transfer_offset,
                 )?;
+                self.active_firmware_id.set(fw_id);
+                self.tftp_started.set(false);
                 self.state.set(AppState::Streaming);
                 Ok(())
             }
             (AppState::Streaming, MessageType::ChunkAck) => {
-                let is_last = handler::handle_chunk_ack(
-                    self.mbox,
-                    data,
-                    self.max_chunk_size,
-                    &self.sequence_number,
-                    &self.transfer_offset,
-                )?;
-                if is_last {
-                    self.state.set(AppState::Ready);
-                }
+                // Validate the ack but don't send a response yet.
+                // The actual TFTP data polling and chunk response happen
+                // incrementally in run_loop (poll_chunk_data) so that the
+                // emulator can process ethernet RX between iterations.
+                handler::validate_chunk_ack(data)?;
+                self.state.set(AppState::ChunkPending);
                 Ok(())
             }
             (_, MessageType::Finalize) => {
@@ -167,7 +358,9 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
                 self.transfer_offset.set(0);
                 Ok(())
             }
-            _ => Err(NetworkMboxError::InvalidArgument),
+            _ => {
+                Err(NetworkMboxError::InvalidArgument)
+            }
         }
     }
 }

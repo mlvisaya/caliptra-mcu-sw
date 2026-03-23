@@ -804,6 +804,9 @@ pub unsafe fn main() {
         debug!("Executing test-mcu-mbox-soc-requester-loopback");
         crate::tests::mcu_mbox_driver_loopback_test::test_mcu_mbox_soc_requester_loopback();
         None
+    } else if cfg!(feature = "test-network-boot") {
+        debug!("Runtime booted from network");
+        Some(0)     
     } else {
         None
     };

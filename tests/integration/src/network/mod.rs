@@ -2,5 +2,6 @@
 
 mod test_boot_source;
 mod test_lwip_dhcp_tftp;
+mod test_network_boot;
 mod test_network_mbox;
 mod test_network_rom;

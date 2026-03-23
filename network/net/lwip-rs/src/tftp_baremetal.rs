@@ -24,6 +24,8 @@ pub struct BaremetalTftpOps {
     pub write: fn(data: &[u8]) -> bool,
     /// Called when the TFTP server reports an error.
     pub error: fn(err: i32, msg: &[u8]),
+    /// Called when the transfer is closed (complete or error).
+    pub close: Option<fn()>,
 }
 
 /// Internal state for the bare-metal TFTP client.
@@ -63,6 +65,9 @@ unsafe extern "C" fn tftp_open_cb(
 unsafe extern "C" fn tftp_close_cb(_handle: *mut c_void) {
     if let Some(ref mut s) = STATE {
         s.complete = true;
+        if let Some(close_fn) = s.ops.close {
+            close_fn();
+        }
     }
 }
 

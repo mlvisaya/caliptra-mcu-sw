@@ -169,6 +169,11 @@ impl McuError {
             "DOT recovery transport error"
         ),
         (
+            ROM_COLD_BOOT_NETWORK_INITIATE_ERROR,
+            0x1_0018,
+            "Cold boot failed to initiate network recovery"
+        ),
+        (
             ROM_LC_TRANSITION_ERROR,
             0x2_0000,
             "Lifecycle transition error"

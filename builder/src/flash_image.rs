@@ -90,6 +90,18 @@ impl<'a> FlashImage<'a> {
         bytes
     }
 
+    /// Convert just the flash header and image headers to a byte vector
+    /// (no firmware data). Used for the TFTP TOC file where images are
+    /// downloaded individually.
+    pub fn to_toc_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(self.header.as_bytes());
+        for info in self.payload.image_info {
+            bytes.extend_from_slice(info.as_bytes());
+        }
+        bytes
+    }
+
     pub fn write_to_file(&self, offset: usize, filename: &str) -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)

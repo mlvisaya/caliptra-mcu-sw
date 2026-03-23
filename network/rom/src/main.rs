@@ -99,6 +99,7 @@ pub extern "C" fn main() -> ! {
     )))]
     {
         run_boot_source_app();
+        loop {}
     }
 
     exit_emulator(0x00);

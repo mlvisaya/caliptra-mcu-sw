@@ -419,11 +419,11 @@ impl NetworkMboxPeripheral for NetworkMailboxInternal {
     fn poll(&mut self) {}
 
     fn warm_reset(&mut self) {
-        self.regs.lock().unwrap().reset();
+//        self.regs.lock().unwrap().reset();
     }
 
     fn update_reset(&mut self) {
-        self.regs.lock().unwrap().reset();
+//        self.regs.lock().unwrap().reset();
     }
 
     fn read_network_mbox_sram(&mut self, index: usize) -> caliptra_emu_types::RvData {
