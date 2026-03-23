@@ -562,13 +562,38 @@ impl BootFlow for ColdBoot {
                 romtime::println!("[mcu-rom] Starting Flash recovery flow");
                 mci.set_flow_checkpoint(McuRomBootStatus::FlashRecoveryFlowStarted.into());
 
-                crate::recovery::load_flash_image_to_recovery(i3c_base, flash_driver)
+                let mut image_provider =
+                    crate::recovery::flash::FlashImageProvider::new(flash_driver);
+                crate::recovery::load_image_to_recovery(i3c_base, &mut image_provider)
                     .unwrap_or_else(|_| fatal_error(McuError::ROM_COLD_BOOT_LOAD_IMAGE_ERROR));
 
                 romtime::println!("[mcu-rom] Flash Recovery flow complete");
                 mci.set_flow_checkpoint(McuRomBootStatus::FlashRecoveryFlowComplete.into());
                 mci.set_flow_milestone(McuBootMilestones::FLASH_RECOVERY_FLOW_COMPLETED.into());
             }
+        }
+
+        // Network boot: download images from the Network CoP via the boot-source protocol.
+        #[cfg(feature = "network-boot")]
+        if params.request_network_boot {
+            use network_drivers::network_mbox::NetworkMboxDriver;
+            use network_hil::network_mbox::NetworkMailbox;
+            romtime::println!("[mcu-rom] Starting Network recovery flow");
+            mci.set_flow_checkpoint(McuRomBootStatus::NetworkRecoveryFlowStarted.into());
+
+            let driver = NetworkMboxDriver::new();
+            let image_provider = crate::recovery::network::NetworkImageProvider::new(&driver);
+            driver.set_client(&image_provider);
+            image_provider
+                .ensure_initiated()
+                .unwrap_or_else(|_| fatal_error(McuError::ROM_COLD_BOOT_NETWORK_INITIATE_ERROR));
+            let mut wrapper = crate::recovery::network::NetworkImageProviderRef(&image_provider);
+            crate::recovery::load_image_to_recovery(i3c_base, &mut wrapper)
+                .unwrap_or_else(|_| fatal_error(McuError::ROM_COLD_BOOT_LOAD_IMAGE_ERROR));
+            let _ = image_provider.finalize();
+
+            romtime::println!("[mcu-rom] Network recovery flow complete");
+            mci.set_flow_checkpoint(McuRomBootStatus::NetworkRecoveryFlowComplete.into());
         }
 
         romtime::println!("[mcu-rom] Waiting for MCU firmware to be ready");

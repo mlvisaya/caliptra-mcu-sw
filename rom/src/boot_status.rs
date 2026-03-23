@@ -72,9 +72,11 @@ pub enum McuRomBootStatus {
     RiDownloadFirmwareComplete = FIRMWARE_LOADING_BASE + 1,
     FlashRecoveryFlowStarted = FIRMWARE_LOADING_BASE + 2,
     FlashRecoveryFlowComplete = FIRMWARE_LOADING_BASE + 3,
-    FirmwareReadyDetected = FIRMWARE_LOADING_BASE + 4,
-    FirmwareValidationComplete = FIRMWARE_LOADING_BASE + 5,
-    CaliptraRuntimeReady = FIRMWARE_LOADING_BASE + 6,
+    NetworkRecoveryFlowStarted = FIRMWARE_LOADING_BASE + 4,
+    NetworkRecoveryFlowComplete = FIRMWARE_LOADING_BASE + 5,
+    FirmwareReadyDetected = FIRMWARE_LOADING_BASE + 6,
+    FirmwareValidationComplete = FIRMWARE_LOADING_BASE + 7,
+    CaliptraRuntimeReady = FIRMWARE_LOADING_BASE + 8,
 
     // Field Entropy Programming
     FieldEntropyProgrammingStarted = FIELD_ENTROPY_BASE,

@@ -12,6 +12,7 @@ mcu-config-emulator.workspace = true
 
 [dependencies]
 bitfield.workspace = true
+boot-source-protocol.workspace = true
 mcu-config.workspace = true
 mcu-config-emulator.workspace = true
 mcu-error.workspace = true
@@ -41,4 +42,5 @@ test-mcu-svn-gt-fuse = []
 test-mcu-svn-lt-fuse = []
 test-flash-based-boot = ["hw-2-1"]
 test-pldm-streaming-boot = []
-test-network-mbox-comm = ["network-drivers", "network-hil"]
+test-network-mbox-comm = ["network-drivers", "network-hil", "mcu-rom-common/network-boot"]
+test-network-boot = ["network-drivers", "network-hil", "mcu-rom-common/network-boot"]
