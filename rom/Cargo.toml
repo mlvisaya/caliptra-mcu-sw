@@ -9,6 +9,7 @@ edition.workspace = true
 [dependencies]
 bitfield.workspace = true
 bitflags.workspace = true
+boot-source-protocol = { workspace = true, optional = true }
 caliptra-api.workspace = true
 caliptra-api-types.workspace = true
 caliptra-drivers.workspace = true
@@ -16,6 +17,8 @@ constant_time_eq.workspace = true
 flash-image.workspace = true
 mcu-config.workspace = true
 mcu-error.workspace = true
+network-drivers = { workspace = true, optional = true }
+network-hil = { workspace = true, optional = true }
 registers-generated.workspace = true
 romtime.workspace = true
 smlang.workspace = true
@@ -31,3 +34,4 @@ rv32i.workspace = true
 default = []   # default is 2.0
 hw-2-1 = []
 core_test = []
+network-boot = ["boot-source-protocol", "network-drivers", "network-hil"]

@@ -198,6 +198,19 @@ pub extern "C" fn rom_entry() -> ! {
     } else if cfg!(feature = "test-network-mbox-comm") {
         #[cfg(feature = "test-network-mbox-comm")]
         crate::network_mbox_test::run();
+    } else if cfg!(feature = "test-network-boot") {
+        #[cfg(feature = "test-network-boot")]
+        mcu_rom_common::rom_start(RomParameters {
+            dot_flash,
+            request_network_boot: true,
+            cptra_mbox_axi_users: mbox_axi_users,
+            cptra_fuse_axi_user: axi_user0,
+            cptra_trng_axi_user: axi_user0,
+            cptra_dma_axi_user: axi_user0,
+            mci_mbox0_axi_users: mbox_axi_users,
+            mci_mbox1_axi_users: mbox_axi_users,
+            ..Default::default()
+        });
     } else {
         // Read backup blob from DOT flash region
         let recovery_backup_blob = {
