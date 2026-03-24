@@ -23,17 +23,6 @@ use core::arch::global_asm;
 
 use network_drivers::{exit_emulator, println};
 
-// Provide a critical-section implementation for single-threaded bare-metal use.
-mod cs_impl {
-    use critical_section::RawRestoreState;
-    struct SingleCoreCriticalSection;
-    critical_section::set_impl!(SingleCoreCriticalSection);
-    unsafe impl critical_section::Impl for SingleCoreCriticalSection {
-        unsafe fn acquire() -> RawRestoreState {}
-        unsafe fn release(_token: RawRestoreState) {}
-    }
-}
-
 // Include the startup assembly code
 #[cfg(target_arch = "riscv32")]
 global_asm!(include_str!("start.s"));

@@ -14,11 +14,14 @@ use zerocopy::{Immutable, IntoBytes};
 use crate::network;
 use crate::toc::Toc;
 
-/// Default maximum poll iterations for DHCP.
-const DHCP_MAX_ITERATIONS: u32 = 500_000;
+/// Timeout in milliseconds for the blocking DHCP path.
+const DHCP_TIMEOUT_MS: u64 = 30_000;
 
-/// Default maximum poll iterations for a single TFTP transfer.
-const TFTP_MAX_ITERATIONS: u32 = 500_000;
+/// Timeout in milliseconds for a single blocking TFTP transfer.
+const TFTP_TIMEOUT_MS: u64 = 30_000;
+
+/// Timeout in milliseconds for polling TFTP data after a ChunkAck.
+const CHUNK_ACK_POLL_TIMEOUT_MS: u64 = 10_000;
 
 /// Default fallback TFTP server IPv6 address (used when DHCPv4 is unavailable).
 ///
@@ -129,19 +132,15 @@ pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     boot_flags.set(req.flags);
 
     // Run DHCP to obtain network configuration.
-    let result = network::run_dhcp(
-        DHCP_MAX_ITERATIONS,
-        V6_FALLBACK_SERVER,
-        V6_FALLBACK_BOOT_FILE,
-    )
-    .map_err(|_| {
-        let _ = send_error(
-            mbox,
-            MessageType::InitiateBootResponse,
-            ErrorCode::SourceNotReady,
-        );
-        NetworkMboxError::Failed
-    })?;
+    let result = network::run_dhcp(DHCP_TIMEOUT_MS, V6_FALLBACK_SERVER, V6_FALLBACK_BOOT_FILE)
+        .map_err(|_| {
+            let _ = send_error(
+                mbox,
+                MessageType::InitiateBootResponse,
+                ErrorCode::SourceNotReady,
+            );
+            NetworkMboxError::Failed
+        })?;
 
     // Initialize TFTP client for later image downloads.
     network::init_tftp().map_err(|_| {
@@ -169,9 +168,13 @@ pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     })?;
 
     // Poll until the TOC download completes.
-    for _ in 0..TFTP_MAX_ITERATIONS {
+    let start = network::now_ms();
+    loop {
         network::poll();
         if network::tftp_is_complete() {
+            break;
+        }
+        if network::now_ms().wrapping_sub(start) >= TFTP_TIMEOUT_MS {
             break;
         }
     }
@@ -283,9 +286,13 @@ pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
     };
 
     // Poll network to receive more TFTP data.
-    for _ in 0..1000 {
+    let start = network::now_ms();
+    loop {
         network::poll();
         if network::tftp_buffered_len() > 0 || network::tftp_is_complete() {
+            break;
+        }
+        if network::now_ms().wrapping_sub(start) >= CHUNK_ACK_POLL_TIMEOUT_MS {
             break;
         }
     }
