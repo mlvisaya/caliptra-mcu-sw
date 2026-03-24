@@ -1,8 +1,6 @@
 // Licensed under the Apache-2.0 license
 
-use core::cell::{Cell, RefCell};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex;
+use core::cell::{Cell, RefCell, UnsafeCell};
 use lwip_rs::ip::Ipv4Addr;
 use lwip_rs::ip::Ipv6Addr;
 use lwip_rs::netif_baremetal::{BaremetalCallbacks, BaremetalNetIf};
@@ -74,7 +72,28 @@ impl LwipState {
 
 unsafe impl Send for LwipState {}
 
-static LWIP: Mutex<CriticalSectionRawMutex, LwipState> = Mutex::new(LwipState::new());
+/// Thin wrapper to satisfy `Sync` for statics containing `RefCell`/`Cell`.
+///
+/// # Safety
+/// Must only be used in a single-threaded context.
+struct SyncCell(UnsafeCell<LwipState>);
+unsafe impl Sync for SyncCell {}
+
+impl SyncCell {
+    const fn new(val: LwipState) -> Self {
+        Self(UnsafeCell::new(val))
+    }
+
+    /// Access the inner state.
+    ///
+    /// # Safety
+    /// Caller must ensure no re-entrant or concurrent access.
+    fn lock<R>(&self, f: impl FnOnce(&LwipState) -> R) -> R {
+        unsafe { f(&*self.0.get()) }
+    }
+}
+
+static LWIP: SyncCell = SyncCell::new(LwipState::new());
 static mut ETH: Option<*mut dyn Ethernet> = None;
 static mut TIMER: Option<*const dyn Timers> = None;
 
@@ -125,11 +144,18 @@ fn eth_rx_available() -> bool {
 }
 
 fn sys_now_ms() -> u32 {
+    now_ms() as u32
+}
+
+/// Return the current elapsed time in milliseconds from the timer.
+///
+/// Returns 0 if the timer has not been initialized.
+pub fn now_ms() -> u64 {
     unsafe {
         match *core::ptr::addr_of!(TIMER) {
             Some(ptr) => {
                 let t = &*ptr;
-                t.elapsed_ms(0, t.ticks()) as u32
+                t.elapsed_ms(0, t.ticks())
             }
             None => 0,
         }
@@ -293,14 +319,15 @@ pub struct DhcpResult {
     pub boot_file_len: usize,
 }
 
-/// Run DHCPv4 and poll until an address is obtained or timeout.
-fn run_dhcp_v4(max_iterations: u32) -> Result<DhcpResult, NetworkError> {
+/// Run DHCPv4 and poll until an address is obtained or `timeout_ms` elapses.
+fn run_dhcp_v4(timeout_ms: u64) -> Result<DhcpResult, NetworkError> {
     LWIP.lock(|s| {
         let mut netif = s.netif.borrow_mut();
 
         netif.dhcp_start().map_err(|_| NetworkError::DhcpFailed)?;
 
-        for _ in 0..max_iterations {
+        let start = now_ms();
+        loop {
             netif.poll();
 
             if netif.dhcp_has_address() {
@@ -321,6 +348,10 @@ fn run_dhcp_v4(max_iterations: u32) -> Result<DhcpResult, NetworkError> {
                     boot_file_len: len,
                 });
             }
+
+            if now_ms().wrapping_sub(start) >= timeout_ms {
+                break;
+            }
         }
 
         Err(NetworkError::DhcpTimeout)
@@ -333,7 +364,7 @@ fn run_dhcp_v4(max_iterations: u32) -> Result<DhcpResult, NetworkError> {
 /// Since DHCPv6 stateless does not provide a boot file name, the caller
 /// must supply a `fallback_server` and `fallback_boot_file` to use.
 fn run_dhcp_v6(
-    max_iterations: u32,
+    timeout_ms: u64,
     fallback_server: Ipv6Addr,
     fallback_boot_file: &[u8],
 ) -> Result<DhcpResult, NetworkError> {
@@ -344,7 +375,8 @@ fn run_dhcp_v6(
             .dhcp6_enable_stateless()
             .map_err(|_| NetworkError::Dhcpv6Failed)?;
 
-        for _ in 0..max_iterations {
+        let start = now_ms();
+        loop {
             netif.poll();
 
             if netif.has_global_ipv6_address() {
@@ -358,6 +390,10 @@ fn run_dhcp_v6(
                     boot_file_len: len,
                 });
             }
+
+            if now_ms().wrapping_sub(start) >= timeout_ms {
+                break;
+            }
         }
 
         Err(NetworkError::Dhcpv6Timeout)
@@ -366,17 +402,18 @@ fn run_dhcp_v6(
 
 /// Attempt DHCPv4 first; if it times out, fall back to DHCPv6/SLAAC.
 ///
-/// `max_iterations` controls how many poll cycles per protocol.
+/// `timeout_ms` is the maximum wall-clock time (in milliseconds) to wait
+/// for each protocol before giving up.
 /// `v6_fallback_server` and `v6_fallback_boot_file` are used when
 /// DHCPv4 is unavailable (stateless DHCPv6 does not carry boot file info).
 pub fn run_dhcp(
-    max_iterations: u32,
+    timeout_ms: u64,
     v6_fallback_server: Ipv6Addr,
     v6_fallback_boot_file: &[u8],
 ) -> Result<DhcpResult, NetworkError> {
-    match run_dhcp_v4(max_iterations) {
+    match run_dhcp_v4(timeout_ms) {
         Ok(result) => Ok(result),
-        Err(_) => run_dhcp_v6(max_iterations, v6_fallback_server, v6_fallback_boot_file),
+        Err(_) => run_dhcp_v6(timeout_ms, v6_fallback_server, v6_fallback_boot_file),
     }
 }
 
