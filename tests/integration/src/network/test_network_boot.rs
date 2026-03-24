@@ -44,7 +44,7 @@ mod test {
         let mut images = Vec::new();
         for (fname, identifier, data) in files {
             images.push(
-                FirmwareImage::new_with_filename(*identifier, data, fname.as_bytes())
+                FirmwareImage::new(*identifier, data, Some(fname.as_bytes()))
                     .expect("failed to create FirmwareImage"),
             );
             std::fs::write(tftp_dir.join(fname), data).expect("Failed to write firmware file");
