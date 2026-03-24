@@ -1,10 +1,30 @@
 # IPv6 Address Configuration: DHCPv6, Stateless DHCPv6, and SLAAC
 
-This document explains the three primary methods for IPv6 address configuration, their differences, and the current implementation used in the Caliptra network boot subsystem.
+lwIP does not support stateful DHCPv6. Only stateless DHCPv6 (SLAAC for address assignment + DHCPv6 Information-Request for DNS) is available. This means the network boot subsystem cannot obtain an IPv6 address or boot file URL from a DHCPv6 server and must rely on SLAAC addresses and hardcoded values for the TFTP server and boot file name.
+
+This document explains the three IPv6 address configuration methods, their differences, and how the current implementation works within these constraints.
 
 ## Overview
 
-Unlike IPv4, which relies almost exclusively on DHCP for automatic address configuration, IPv6 provides multiple mechanisms. Understanding the differences is important because each method has trade-offs in terms of what information it can deliver to the client and how much infrastructure is required.
+Unlike IPv4, which relies almost exclusively on DHCP for automatic address configuration, IPv6 provides multiple mechanisms. Each method has trade-offs in what information it can deliver to the client and how much infrastructure is required.
+
+```mermaid
+graph TD
+    Client["Client<br/>(Caliptra SOC)"]
+    Router["Router"]
+    DHCPv6["DHCPv6<br/>Server"]
+
+    Client --- Link
+    Router --- Link
+    DHCPv6 --- Link
+
+    Link["——————————————— Network Link ———————————————"]
+
+    style Link fill:none,stroke:none,color:#666,font-weight:bold
+
+```
+
+A router periodically sends a **Router Advertisement (RA)** — an ICMPv6 message that announces the router's presence on the link and carries network configuration parameters such as address prefixes, flags, and link MTU. Hosts use the information in RAs to configure their IPv6 addresses and determine whether to contact a DHCPv6 server. The flags in the RA dictate which of the three methods below the host should use.
 
 | Feature | SLAAC | Stateless DHCPv6 | Stateful DHCPv6 |
 |---|---|---|---|
@@ -72,7 +92,7 @@ The router sets both the **A flag** (for SLAAC) and the **O flag** (for other co
 
 In a standard PXE boot environment, the boot file URL *can* be delivered via **DHCPv6 Option 59 (Boot File URL)** defined in **RFC 5970**. This option contains a URI such as `tftp://[2001:db8::1]/pxelinux.0`, providing both the TFTP server address and the filename in a single field. RFC 5970 does not restrict option 59 to stateful exchanges — a DHCPv6 server **can** include it in a Reply to an Information-Request (stateless mode). Servers like ISC DHCP and dnsmasq support this.
 
-However, the **client** must explicitly request and parse option 59. lwIP's stateless DHCPv6 implementation only requests and parses options 23 (DNS servers), 24 (domain search list), and 31 (NTP servers). It does **not** request or parse option 59, which is why the current implementation cannot discover boot file information over IPv6 and must rely on compiled-in fallback values instead.
+However, the **client** must explicitly request and parse option 59. lwIP's stateless DHCPv6 implementation only requests and parses options 23 (DNS servers), 24 (domain search list), and 31 (NTP servers). It does **not** request or parse option 59, which is why the current implementation cannot discover boot file information over IPv6 and must rely on hardcoded values instead.
 
 **Limitations:**
 - The DHCPv6 server does **not** assign addresses and does **not** track leases.
@@ -148,46 +168,8 @@ sequenceDiagram
     Note over Host: Address assigned by server ✓<br/>DNS configured ✓<br/>(Boot file possible via option 59,<br/>but rarely supported in embedded stacks)
 ```
 
----
-
-## Side-by-Side Comparison
-
-```mermaid
-flowchart TD
-    RA["Router sends<br/>Router Advertisement"]
-    RA -->|"A=1, O=0, M=0"| SLAAC["<b>SLAAC Only</b><br/>Host self-assigns address<br/>No DNS, no boot file"]
-    RA -->|"A=1, O=1, M=0"| STATELESS["<b>Stateless DHCPv6</b><br/>Host self-assigns address (SLAAC)<br/>DHCPv6 provides DNS<br/>No boot file"]
-    RA -->|"M=1"| STATEFUL["<b>Stateful DHCPv6</b><br/>Server assigns address<br/>Server provides DNS + options<br/>Boot file possible (option 59)"]
-
-    style SLAAC fill:#e8f5e9,stroke:#388e3c
-    style STATELESS fill:#e3f2fd,stroke:#1976d2
-    style STATEFUL fill:#fff3e0,stroke:#f57c00
-```
-
----
 
 ## Current Implementation: Network Boot for IPv6
-
-The Caliptra network boot subsystem uses **lwIP** (Lightweight IP), a minimal TCP/IP stack designed for embedded and resource-constrained environments.
-
-### lwIP IPv6 Configuration
-
-The following compile-time flags control IPv6 behavior (from `lwipopts.h`):
-
-```c
-#define LWIP_IPV6                    1   // IPv6 enabled
-#define LWIP_IPV6_AUTOCONFIG         1   // SLAAC enabled
-#define LWIP_IPV6_DHCP6              1   // DHCPv6 enabled
-#define LWIP_IPV6_DHCP6_STATEFUL     0   // Stateful DHCPv6 DISABLED
-#define LWIP_ND6_ALLOW_RA_UPDATES    1   // Process Router Advertisements
-#define LWIP_ICMP6                   1   // ICMPv6 (required for ND6)
-```
-
-Key takeaway: **`LWIP_IPV6_DHCP6_STATEFUL` is set to `0`**, meaning lwIP only supports stateless DHCPv6. It cannot obtain an IPv6 address from a DHCPv6 server.
-
-> **Important:** Even if `LWIP_IPV6_DHCP6_STATEFUL` were set to `1`, stateful DHCPv6 would **still not work**. lwIP's stateful DHCPv6 is entirely unimplemented — `dhcp6_enable_stateful()` is a stub that prints `"stateful dhcp6 not implemented yet"` and returns `ERR_VAL`. The state machine only has stateless states (`OFF`, `STATELESS_IDLE`, `REQUESTING_CONFIG`); there are no Solicit/Request message handlers, no IA_NA option parsing, and no option 59 (Boot File URL) support. Enabling the flag alone would not provide any stateful functionality.
-
-### How IPv6 Address Assignment Works (Current Implementation)
 
 The implementation uses **SLAAC + Stateless DHCPv6** (`ra-stateless` mode):
 
@@ -217,7 +199,7 @@ sequenceDiagram
 
     Note over FW: 3. Global IPv6 address ready ✓<br/>DNS configured ✓
 
-    Note over FW: 4. Use fallback TFTP server<br/>and fallback boot file name<br/>(not from DHCPv6)
+    Note over FW: 4. Use hardcoded TFTP server<br/>and hardcoded boot file name<br/>(not from DHCPv6)
 
     FW->>TFTP: TFTP GET "toc.bin" over IPv6
     TFTP-->>FW: TFTP DATA (firmware TOC)
@@ -233,13 +215,13 @@ This is the **key limitation** of the current IPv6 implementation:
 
 - **IPv6 (Stateless DHCPv6)**: DHCPv6 option 59 (`OPT_BOOTFILE_URL`, RFC 5970) can carry boot file information and is not restricted to stateful exchanges — a server *can* include it in a stateless Reply. However, lwIP's DHCPv6 client does not request or parse option 59 (it only handles options 23, 24, and 31). Additionally, lwIP's stateful DHCPv6 is completely unimplemented (stub only), so neither stateless nor stateful paths provide boot file discovery.
 
-As a result, **the IPv6 boot path uses hardcoded fallback values** for the TFTP server address and boot file name:
+As a result, **the IPv6 boot path uses hardcoded values** for the TFTP server address and boot file name:
 
 ```rust
 fn run_dhcp_v6(
     max_iterations: u32,
-    fallback_server: Ipv6Addr,       // ← Hardcoded / compiled-in
-    fallback_boot_file: &[u8],       // ← Hardcoded / compiled-in
+    fallback_server: Ipv6Addr,       // ← Hardcoded
+    fallback_boot_file: &[u8],       // ← Hardcoded
 ) -> Result<DhcpResult, NetworkError> { ... }
 ```
 
@@ -268,7 +250,7 @@ sequenceDiagram
         FW->>SRV: DHCPv6 Information-Request
         SRV-->>FW: DHCPv6 Reply (DNS only)
 
-        Note over FW: Use compiled-in fallback:<br/>• TFTP server address<br/>• Boot file name (toc.bin)
+        Note over FW: Use hardcoded values:<br/>• TFTP server address<br/>• Boot file name (toc.bin)
     end
 
     FW->>SRV: TFTP GET boot file
@@ -279,13 +261,13 @@ sequenceDiagram
 
 1. **No stateful DHCPv6 support**: lwIP is compiled with `LWIP_IPV6_DHCP6_STATEFUL = 0`, and even enabling this flag would not help — stateful DHCPv6 is entirely unimplemented in lwIP (the enable function is a stub that returns an error). The device cannot receive an IPv6 address from a DHCPv6 server.
 
-2. **No boot file discovery over IPv6**: lwIP's DHCPv6 client does not request or parse option 59 (Boot File URL, RFC 5970). While the protocol allows option 59 in both stateless and stateful exchanges, lwIP only parses DNS (option 23), domain search list (option 24), and NTP (option 31). The TFTP server and boot file name must be provided as compiled-in fallback values.
+2. **No boot file discovery over IPv6**: lwIP's DHCPv6 client does not request or parse option 59 (Boot File URL, RFC 5970). While the protocol allows option 59 in both stateless and stateful exchanges, lwIP only parses DNS (option 23), domain search list (option 24), and NTP (option 31). The TFTP server and boot file name must be hardcoded.
 
 3. **IPv6 is a fallback only**: The current boot flow always attempts DHCPv4 first. IPv6 is only used when DHCPv4 is unavailable.
 
 ### Options for Supporting IPv6 Network Boot
 
-To move beyond hardcoded fallback values and support dynamic boot file discovery over IPv6, there are two primary options — plus a lighter-weight alternative:
+To move beyond hardcoded values and support dynamic boot file discovery over IPv6, there are two primary options — plus a lighter-weight alternative:
 
 #### Option 1: Stateless DHCPv6 + Add Option 59 Parsing to lwIP (Recommended)
 
@@ -365,4 +347,4 @@ Use the DNS server already obtained via stateless DHCPv6 to resolve a well-known
 
 #### Recommendation
 
-**Option 1** is the pragmatic choice. SLAAC already provides a working IPv6 address, and option 59 parsing is a small, targeted change to lwIP's existing stateless DHCPv6 code. It eliminates the need for hardcoded fallback values without the complexity of a full stateful DHCPv6 implementation. Option 2 only makes sense if centralized IPv6 address management is independently required.
+**Option 1** is the pragmatic choice. SLAAC already provides a working IPv6 address, and option 59 parsing is a small, targeted change to lwIP's existing stateless DHCPv6 code. It eliminates the need for hardcoded values without the complexity of a full stateful DHCPv6 implementation. Option 2 only makes sense if centralized IPv6 address management is independently required.
