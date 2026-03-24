@@ -3445,7 +3445,11 @@ dependencies = [
 name = "network-app-boot-source"
 version = "0.1.0"
 dependencies = [
+ "boot-source-protocol",
  "flash-image",
+ "lwip-rs",
+ "network-drivers",
+ "network-hil",
  "zerocopy",
 ]
 
@@ -3495,9 +3499,11 @@ dependencies = [
 name = "network-rom"
 version = "0.1.0"
 dependencies = [
+ "network-app-boot-source",
  "network-app-rom-test",
  "network-config",
  "network-drivers",
+ "network-hil",
 ]
 
 [[package]]

@@ -7,5 +7,9 @@ edition.workspace = true
 description = "Boot source provider application for the Network Coprocessor"
 
 [dependencies]
+boot-source-protocol.workspace = true
 flash-image.workspace = true
+lwip-rs = { workspace = true, default-features = false, features = ["baremetal-tftp", "baremetal-tftpv6"] }
+network-drivers.workspace = true
+network-hil.workspace = true
 zerocopy.workspace = true
