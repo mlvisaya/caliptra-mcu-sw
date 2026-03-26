@@ -27,7 +27,7 @@ import time
 
 from textual.app import App, ComposeResult
 from textual.containers import Center, Horizontal, Middle, Vertical
-from textual.screen import Screen
+from textual.screen import ModalScreen
 from textual.widgets import RichLog, Static
 
 MCU_LOG = "/tmp/mcu_log.txt"
@@ -53,10 +53,11 @@ TEST_CMD = _find_test_cmd()
 TSHARK_CMD = ["sudo", "tshark", "-i", "tap0", "-l"]
 
 
-class StartScreen(Screen):
+class StartScreen(ModalScreen):
     CSS = """
     StartScreen {
         align: center middle;
+        background: rgba(0, 0, 0, 0.7);
     }
     #banner {
         width: auto;
