@@ -136,7 +136,6 @@ impl<'a, M: NetworkMailbox<'a>> BootSourceApp<'a, M> {
         unsafe { &*self.dhcp_result.get() }
     }
 
-    #[allow(clippy::mut_from_ref)]
     fn dhcp_result_mut(&self) -> &mut Option<network::DhcpResult> {
         unsafe { &mut *self.dhcp_result.get() }
     }

@@ -19,6 +19,7 @@ mod test {
     use mcu_builder::flash_image::{generate_image_info, FirmwareImage, FlashImage};
     use mcu_hw_model::McuHwModel;
     use mcu_rom_common::boot_status::McuRomBootStatus;
+    use std::io::Write;
     use std::sync::{Arc, Mutex};
 
     const TAP_INTERFACE: &str = "tap0";
@@ -169,12 +170,17 @@ mod test {
         const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
         let deadline = std::time::Instant::now() + TIMEOUT;
         let mut last_net_len: usize = 0;
+        let mut net_log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/network_log.txt")
+            .expect("Failed to open /tmp/network_log.txt");
 
         hw.step_until(|m| {
             // Print new network CPU output as it arrives.
             if let Some(net_output) = m.network_uart_output() {
                 if net_output.len() > last_net_len {
-                    print!("{}", &net_output[last_net_len..]);
+                    let _ = write!(net_log_file, "{}", &net_output[last_net_len..]);
                     last_net_len = net_output.len();
                 }
             }

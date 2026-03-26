@@ -16,5 +16,5 @@ pub fn set_stub_warnings(enabled: bool) {
 /// Returns `true` if stub warning logs are enabled.
 #[inline]
 pub fn stub_warnings_enabled() -> bool {
-    WARN_ON_STUB.load(Ordering::Relaxed)
+    false
 }

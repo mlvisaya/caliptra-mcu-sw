@@ -16,6 +16,8 @@ use caliptra_emu_bus::{Bus, BusError, Clock, Timer};
 use caliptra_emu_cpu::Irq;
 use caliptra_emu_types::{RvAddr, RvData, RvSize};
 use std::cell::{Cell, RefCell};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +32,7 @@ pub struct Uart {
     irq: Irq,
     timer: Timer,
     char_buffer: Cell<PartialUtf8>,
+    log_file: RefCell<File>,
 }
 
 impl Uart {
@@ -65,6 +68,13 @@ impl Uart {
             byte_last_irq_triggered: Cell::new(u64::MAX),
             timer: Timer::new(clock),
             char_buffer: Cell::new(PartialUtf8::new()),
+            log_file: RefCell::new(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/mcu_log.txt")
+                    .expect("Failed to open /tmp/mcu_log.txt"),
+            ),
         }
     }
 }
@@ -145,13 +155,15 @@ impl Bus for Uart {
                 None => {
                     match value as u8 {
                         // normal ASCII
-                        0x02..=0x7f => eprint!("{}", value as u8 as char),
+                        0x02..=0x7f => {
+                            let _ = write!(self.log_file.borrow_mut(), "{}", value as u8 as char);
+                        }
                         // UTF-8 multi-byte sequences
                         0x80..=0xf4 => {
                             let mut partial = self.char_buffer.take();
                             partial.push(value as u8);
                             while let Some(c) = partial.next() {
-                                eprint!("{}", c);
+                                let _ = write!(self.log_file.borrow_mut(), "{}", c);
                             }
                             self.char_buffer.set(partial);
                         }

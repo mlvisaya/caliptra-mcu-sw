@@ -43,6 +43,7 @@ where
 {
     let bytes = packet.as_bytes();
     let dlen = bytes.len();
+    network_drivers::println!("[boot-src] Sending response ({} bytes)", dlen);
     let dw_iter = bytes.chunks(4).map(|chunk| {
         let mut dw = [0u8; 4];
         dw[..chunk.len()].copy_from_slice(chunk);
@@ -57,6 +58,7 @@ pub fn send_error<'a, M: NetworkMailbox<'a>>(
     msg_type: MessageType,
     error: ErrorCode,
 ) -> Result<()> {
+    network_drivers::println!("[boot-src] Sending error response: msg_type={:?}, error={:?}", msg_type, error);
     match msg_type {
         MessageType::InitiateBootResponse => {
             let mut bytes = [0u8; InitiateBootResponse::SIZE];
@@ -95,12 +97,14 @@ pub fn handle_initiate_boot_start(
     data: &[u8],
     boot_flags: &core::cell::Cell<BootFlags>,
 ) -> Result<()> {
+    network_drivers::println!("[boot-src] Received InitiateBootRequest");
     let req: &InitiateBootRequest = match parse_fixed(data) {
         Some(r) => r,
         None => return Err(NetworkMboxError::InvalidArgument),
     };
 
     boot_flags.set(req.flags);
+    network_drivers::println!("[boot-src] Starting DHCP");
     network::start_dhcp().map_err(|_| NetworkMboxError::Failed)?;
     Ok(())
 }
@@ -118,6 +122,7 @@ pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
     toc: &mut Toc,
     dhcp_result: &mut Option<network::DhcpResult>,
 ) -> Result<()> {
+    network_drivers::println!("[boot-src] Received InitiateBootRequest (blocking)");
     let req: &InitiateBootRequest = match parse_fixed(data) {
         Some(r) => r,
         None => {
@@ -202,6 +207,7 @@ pub fn handle_initiate_boot<'a, M: NetworkMailbox<'a>>(
 
     *dhcp_result = Some(result);
 
+    network_drivers::println!("[boot-src] Sending InitiateBootResponse (success)");
     let resp = InitiateBootResponse::new(Status::Success);
     send_packet_response(mbox, &resp)
 }
@@ -211,6 +217,7 @@ pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
     data: &[u8],
     toc: &Toc,
 ) -> Result<()> {
+    network_drivers::println!("[boot-src] Received ImageMetadataRequest");
     let req: &ImageMetadataRequest = match parse_fixed(data) {
         Some(r) => r,
         None => {
@@ -224,6 +231,7 @@ pub fn handle_image_metadata<'a, M: NetworkMailbox<'a>>(
 
     match toc.find(req.firmware_id) {
         Some(entry) => {
+            network_drivers::println!("[boot-src] Sending ImageMetadataResponse: fw_id={}, size={}", req.firmware_id, entry.image_size);
             let mut checksum = [0u8; 32];
             checksum[..4].copy_from_slice(&entry.image_checksum.to_le_bytes());
             let resp = ImageMetadataResponse::new(entry.image_size, checksum, 0, 0);
@@ -245,6 +253,7 @@ pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
     seq: &core::cell::Cell<u16>,
     offset: &core::cell::Cell<u32>,
 ) -> core::result::Result<u8, NetworkMboxError> {
+    network_drivers::println!("[boot-src] Received ImageDownloadRequest");
     let req: &ImageDownloadRequest = match parse_fixed(data) {
         Some(r) => r,
         None => {
@@ -264,6 +273,7 @@ pub fn handle_image_download<'a, M: NetworkMailbox<'a>>(
     // Send an initial zero-payload header to acknowledge the download started.
     // TFTP GET is deferred to poll_chunk_data to avoid filling the buffer
     // before the MCU can drain it.
+    network_drivers::println!("[boot-src] Sending ImageDownload ack header for fw_id={}", req.firmware_id);
     let hdr = ImageChunkHeader::new(0, 0, 0);
     send_packet_response(mbox, &hdr)?;
     Ok(req.firmware_id)
@@ -312,6 +322,14 @@ pub fn handle_chunk_ack<'a, M: NetworkMailbox<'a>>(
 
     let is_last = network::tftp_is_complete() && network::tftp_buffered_len() == 0;
 
+    if s == 0 {
+        network_drivers::println!("[boot-src] Sending first ImageChunk: offset={}, len={}", o, chunk_len);
+    } else if s == 1 && !is_last {
+        network_drivers::println!("[boot-src] Sending more chunks...");
+    }
+    if is_last {
+        network_drivers::println!("[boot-src] Sending last ImageChunk: seq={}, offset={}, len={}", s, o, chunk_len);
+    }
     let hdr = ImageChunkHeader::new(s, o, chunk_len as u32);
     let hdr_bytes = hdr.as_bytes();
     let total_len = ImageChunkHeader::SIZE + chunk_len;
@@ -365,6 +383,14 @@ pub fn send_next_chunk<'a, M: NetworkMailbox<'a>>(
 
     let is_last = network::tftp_is_complete() && network::tftp_buffered_len() == 0;
 
+    if s == 0 {
+        network_drivers::println!("[boot-src] Sending first chunk: offset={}, len={}", o, chunk_len);
+    } else if s == 1 && !is_last {
+        network_drivers::println!("[boot-src] Sending more chunks...");
+    }
+    if is_last {
+        network_drivers::println!("[boot-src] Sending last chunk: seq={}, offset={}, len={}", s, o, chunk_len);
+    }
     let hdr = ImageChunkHeader::new(s, o, chunk_len as u32);
     let hdr_bytes = hdr.as_bytes();
     let total_len = ImageChunkHeader::SIZE + chunk_len;
@@ -392,6 +418,7 @@ pub fn handle_finalize<'a, M: NetworkMailbox<'a>>(
     data: &[u8],
     toc: &mut Toc,
 ) -> Result<()> {
+    network_drivers::println!("[boot-src] Received FinalizeRequest");
     let _req: &FinalizeRequest = match parse_fixed(data) {
         Some(r) => r,
         None => return send_error(mbox, MessageType::FinalizeAck, ErrorCode::InvalidParameters),
@@ -402,6 +429,7 @@ pub fn handle_finalize<'a, M: NetworkMailbox<'a>>(
     network::cleanup_tftp();
     network::shutdown();
 
+    network_drivers::println!("[boot-src] Sending FinalizeAck (success)");
     let resp = FinalizeAck::new(Status::Success, CleanupFlags(0));
     send_packet_response(mbox, &resp)
 }
