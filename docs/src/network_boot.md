@@ -74,7 +74,6 @@ Once the boot source is initialized, the MCU ROM uses the `BootSourceProvider` m
 sequenceDiagram
     participant CRIF as Caliptra Recovery I/F
     participant MCU as MCU ROM
-    participant STG as Staging Memory
     participant NET as Network ROM<br>(BootSourceProvider)
     participant IMG as Image Server
 
@@ -92,11 +91,10 @@ sequenceDiagram
 
         loop Image transfer by chunk
             IMG-->>NET: Image chunk
-            NET-->>MCU: Forward image chunk (ImageStream::read_chunk)
+            NET-->>NET: Store image chunk to local buffer
+            NET-->>IMG: TFTP Ack
+            NET-->>MCU: Image chunk
             MCU->>CRIF: Write chunk to recovery I/F
-            opt FlashWriteBack enabled
-                MCU->>STG: Write chunk to staging
-            end
             MCU-->>NET: Chunk ACK
         end
     end
