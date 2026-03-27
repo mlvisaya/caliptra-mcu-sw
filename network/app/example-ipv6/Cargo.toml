@@ -1,14 +1,12 @@
-# Licensed under the Apache-2.0 license
-
 [package]
-name = "lwip-rs-example"
+name = "lwip-rs-example-ipv6"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
-description = "DHCP + TFTP boot example application using lwip-rs"
+description = "DHCPv6 (stateful) + TFTP over IPv6 boot example application using lwip-rs"
 
 [[bin]]
-name = "lwip-rs-example"
+name = "lwip-rs-example-ipv6"
 path = "src/main.rs"
 
 [dependencies]
