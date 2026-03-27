@@ -4,9 +4,19 @@
 
 use anyhow::{Context, Result};
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Get the workspace root directory.
+/// xtask lives at `<workspace>/xtask/`, so we go up one level.
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask should be in a subdirectory of the workspace")
+        .to_path_buf()
+}
 
 /// Build network applications
 pub fn build(release: bool, lib_only: bool) -> Result<()> {
@@ -17,12 +27,16 @@ pub fn build(release: bool, lib_only: bool) -> Result<()> {
         println!("Building all network packages...");
 
         // Build lwip-rs library first
-        println!("\n[1/2] Building lwip-rs...");
+        println!("\n[1/3] Building lwip-rs...");
         build_package("lwip-rs", release)?;
 
         // Build example application
-        println!("\n[2/2] Building example application...");
+        println!("\n[2/3] Building example application...");
         build_package("lwip-rs-example", release)?;
+
+        // Build IPv6 example application
+        println!("\n[3/3] Building IPv6 example application...");
+        build_package("lwip-rs-example-ipv6", release)?;
     }
 
     println!("\nBuild complete!");
@@ -40,10 +54,12 @@ pub fn run_example(package: &str, release: bool) -> Result<()> {
     println!("(Make sure TAP interface and server are running)\n");
 
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("-p")
-        .arg(package)
-        .env("PRECONFIGURED_TAPIF", "tap0");
+    if let Some(manifest) = standalone_manifest(package) {
+        cmd.arg("run").arg("--manifest-path").arg(manifest);
+    } else {
+        cmd.arg("run").arg("-p").arg(package);
+    }
+    cmd.env("PRECONFIGURED_TAPIF", "tap0");
 
     if release {
         cmd.arg("--release");
@@ -74,10 +90,12 @@ pub fn run_example_with_timeout(
 
     // Spawn the process using cargo run
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("-p")
-        .arg(package)
-        .env("PRECONFIGURED_TAPIF", tap_interface)
+    if let Some(manifest) = standalone_manifest(package) {
+        cmd.arg("run").arg("--manifest-path").arg(manifest);
+    } else {
+        cmd.arg("run").arg("-p").arg(package);
+    }
+    cmd.env("PRECONFIGURED_TAPIF", tap_interface)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -147,10 +165,26 @@ fn wait_with_timeout(
     }
 }
 
+/// Return the manifest path for excluded (standalone) packages.
+/// These packages are in the workspace `exclude` list and cannot be resolved
+/// via `cargo -p`; they must be built with `--manifest-path`.
+fn standalone_manifest(package: &str) -> Option<PathBuf> {
+    let rel = match package {
+        "lwip-rs-example" => "network/app/example/Cargo.toml",
+        "lwip-rs-example-ipv6" => "network/app/example-ipv6/Cargo.toml",
+        _ => return None,
+    };
+    Some(workspace_root().join(rel))
+}
+
 /// Build a specific package by name
 fn build_package(package: &str, release: bool) -> Result<()> {
     let mut cmd = Command::new("cargo");
-    cmd.arg("build").arg("-p").arg(package);
+    if let Some(manifest) = standalone_manifest(package) {
+        cmd.arg("build").arg("--manifest-path").arg(manifest);
+    } else {
+        cmd.arg("build").arg("-p").arg(package);
+    }
 
     if release {
         cmd.arg("--release");
