@@ -26,3 +26,4 @@
 - [Running with an FPGA](./fpga.md)
 - [Caliptra Utility Host Library](./caliptra_util_host_library.md)
 - [Network Boot Recovery](./network_boot.md)
+- [Stateful DHCPv6 Support in lwIP](./dhcpv6_stateful_support.md)
