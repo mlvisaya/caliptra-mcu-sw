@@ -287,7 +287,7 @@ impl BootFlow for ColdBoot {
         romtime::println!("[mcu-rom] OTP initialized");
 
         let flash_boot = ((mci.registers.mci_reg_generic_input_wires[1].get() & (1 << 29)) != 0)
-            || params.request_flash_boot;
+            || params.request_flash_boot.unwrap_or(false);
 
         if flash_boot && (params.flash_partition_driver.is_none() || !cfg!(feature = "hw-2-1")) {
             romtime::println!(
@@ -575,7 +575,7 @@ impl BootFlow for ColdBoot {
 
         // Network boot: download images from the Network CoP via the boot-source protocol.
         #[cfg(feature = "network-boot")]
-        if params.request_network_boot {
+        if params.request_network_boot.unwrap_or(false) {
             use network_drivers::network_mbox::NetworkMboxDriver;
             use network_hil::network_mbox::NetworkMailbox;
             romtime::println!("[mcu-rom] Starting Network recovery flow");

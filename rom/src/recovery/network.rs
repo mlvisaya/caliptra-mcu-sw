@@ -20,8 +20,14 @@ use zerocopy::{FromBytes, IntoBytes};
 
 use crate::recovery::ImageProvider;
 
-/// Maximum poll iterations for any single network operation.
-const MAX_POLL_ITERATIONS: u32 = 50_000_000;
+/// MCU clock frequency in Hz (400 MHz).
+const CLOCK_FREQ_HZ: u64 = 400_000_000;
+
+/// Timeout in seconds for any single network operation.
+const NETWORK_OP_TIMEOUT_SECS: u64 = 30;
+
+/// Timeout in cycles for any single network operation.
+const NETWORK_OP_TIMEOUT_CYCLES: u64 = CLOCK_FREQ_HZ * NETWORK_OP_TIMEOUT_SECS;
 
 /// Maximum response size in dwords. Must fit ImageChunkHeader (12) + max payload (1024).
 const MAX_RESP_DW: usize = 276;
@@ -96,22 +102,26 @@ impl<'a, M: NetworkMailbox<'a>> NetworkImageProvider<'a, M> {
 
     /// Send a packet, retrying on `Locked` while polling the driver.
     fn send_with_retry<T: IntoBytes + zerocopy::Immutable>(&self, pkt: &T) -> Result<()> {
-        for _ in 0..MAX_POLL_ITERATIONS {
+        let start = romtime::mcycle();
+        loop {
             match self.send_packet(pkt) {
                 Ok(()) => return Ok(()),
                 Err(NetworkMboxError::Locked) => {
                     self.mbox.poll();
+                    if romtime::mcycle().wrapping_sub(start) >= NETWORK_OP_TIMEOUT_CYCLES {
+                        return Err(NetworkMboxError::Timeout);
+                    }
                     continue;
                 }
                 Err(e) => return Err(e),
             }
         }
-        Err(NetworkMboxError::Timeout)
     }
 
     /// Poll the driver until the phase transitions away from `wait_phase`.
     fn poll_until_phase_change(&self, wait_phase: Phase) -> Result<()> {
-        for _ in 0..MAX_POLL_ITERATIONS {
+        let start = romtime::mcycle();
+        loop {
             self.mbox.poll();
             let p = self.phase.get();
             if p != wait_phase {
@@ -120,8 +130,10 @@ impl<'a, M: NetworkMailbox<'a>> NetworkImageProvider<'a, M> {
                 }
                 return Ok(());
             }
+            if romtime::mcycle().wrapping_sub(start) >= NETWORK_OP_TIMEOUT_CYCLES {
+                return Err(NetworkMboxError::Timeout);
+            }
         }
-        Err(NetworkMboxError::Timeout)
     }
 
     /// Perform the InitiateBoot handshake (only once per boot session).
