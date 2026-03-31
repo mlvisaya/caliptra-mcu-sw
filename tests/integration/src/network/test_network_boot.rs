@@ -44,7 +44,7 @@ mod test {
         let mut images = Vec::new();
         for (fname, identifier, data) in files {
             images.push(
-                FirmwareImage::new_with_filename(*identifier, data, fname.as_bytes())
+                FirmwareImage::new(*identifier, data, Some(fname.as_bytes()))
                     .expect("failed to create FirmwareImage"),
             );
             std::fs::write(tftp_dir.join(fname), data).expect("Failed to write firmware file");
@@ -151,6 +151,7 @@ mod test {
         // --- Launch emulator with network boot ---
         // network_boot: true ensures BMC only streams caliptra firmware;
         // soc_manifest and mcu_runtime come from the Network CoP via TFTP.
+        emulator_registers_generated::stub_warnings::set_stub_warnings(false);
         let mut hw = start_runtime_hw_model(TestParams {
             include_network_rom: true,
             rom_only: true,
