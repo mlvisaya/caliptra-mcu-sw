@@ -3219,6 +3219,7 @@ version = "0.1.0"
 dependencies = [
  "bitfield",
  "bitflags 2.10.0",
+ "boot-source-protocol",
  "caliptra-api",
  "caliptra-api-types",
  "caliptra-drivers",
@@ -3226,6 +3227,8 @@ dependencies = [
  "flash-image",
  "mcu-config",
  "mcu-error",
+ "network-drivers",
+ "network-hil",
  "registers-generated",
  "riscv-csr",
  "romtime",
@@ -3241,6 +3244,7 @@ name = "mcu-rom-emulator"
 version = "0.1.0"
 dependencies = [
  "bitfield",
+ "boot-source-protocol",
  "mcu-builder",
  "mcu-config",
  "mcu-config-emulator",

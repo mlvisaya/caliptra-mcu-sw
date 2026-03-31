@@ -1,8 +1,9 @@
 // Licensed under the Apache-2.0 license
 
 pub mod flash;
+#[cfg(feature = "network-boot")]
+pub mod network;
 
-use crate::{flash::flash_partition::FlashPartition, recovery::flash::FlashImageProvider};
 use bitfield::bitfield;
 use registers_generated::i3c;
 use registers_generated::i3c::bits::{IndirectFifoStatus0, RecIntfCfg, RecIntfRegW1cAccess};
@@ -39,6 +40,7 @@ pub trait ImageProvider {
     fn next_bytes(&mut self, data: &mut [u8]) -> Result<(), ()>;
 
     /// Return the number of image bytes which have been loaded by the given provider.
+    #[allow(dead_code)]
     fn bytes_loaded(&self) -> usize;
 }
 
@@ -222,9 +224,9 @@ impl StateMachineContext for Context {
     }
 }
 
-pub fn load_flash_image_to_recovery<'a>(
+pub fn load_image_to_recovery(
     i3c_periph: StaticRef<i3c::regs::I3c>,
-    flash_driver: &'a mut FlashPartition<'a>,
+    image_provider: &mut dyn ImageProvider,
 ) -> Result<(), ()> {
     let context = Context::new();
     let mut state_machine = StateMachine::new(context);
@@ -232,8 +234,6 @@ pub fn load_flash_image_to_recovery<'a>(
     let mut prev_state = States::ReadProtCap;
     let mut next_print_checkpoint = 0;
     let mut start_cycle = None;
-
-    let mut image_provider = FlashImageProvider::new(flash_driver);
 
     i3c_periph
         .soc_mgmt_if_rec_intf_cfg
@@ -290,17 +290,22 @@ pub fn load_flash_image_to_recovery<'a>(
                     start_cycle = Some(romtime::mcycle());
                 }
 
-                let bytes_loaded = image_provider.bytes_loaded();
-                if bytes_loaded >= next_print_checkpoint {
+                // Use the FIFO write index to track actual bytes written to
+                // the recovery interface, not bytes_received from the network
+                // (which may jump ahead when a large network chunk arrives).
+                let fifo_bytes_written =
+                    i3c_periph.sec_fw_recovery_if_indirect_fifo_status_1.get() as usize * 4;
+                if fifo_bytes_written >= next_print_checkpoint {
                     romtime::println!(
                         "[mcu-rom] Transferring image data at offset {} out of {}",
-                        bytes_loaded,
+                        fifo_bytes_written,
                         state_machine.context().image_size
                     );
-                    next_print_checkpoint = bytes_loaded + state_machine.context().image_size / 10;
+                    next_print_checkpoint =
+                        fifo_bytes_written + state_machine.context().image_size / 10;
                 }
 
-                if bytes_loaded >= state_machine.context().image_size {
+                if fifo_bytes_written >= state_machine.context().image_size {
                     // Set REC_INTF_CFG.REC_PAYLOAD_DONE bit to indicate transfer complete
                     i3c_periph
                         .soc_mgmt_if_rec_intf_cfg
