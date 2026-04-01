@@ -72,6 +72,9 @@ mod test {
         /// Custom OTP memory contents. If provided, takes precedence over dot_enabled.
         pub otp_memory: Option<Vec<u8>>,
         pub flash_boot: bool,
+        /// If true, only pass caliptra firmware to BMC; soc_manifest and
+        /// mcu_firmware will be provided via the network boot path.
+        pub network_boot: bool,
         /// ROM feature flag. If set, compiles a ROM with this feature enabled.
         pub rom_feature: Option<&'a str>,
     }
@@ -179,19 +182,20 @@ mod test {
         }
     }
 
-    struct TestBinaries {
-        vendor_pk_hash_u8: Vec<u8>,
-        caliptra_rom: Vec<u8>,
-        caliptra_fw: Vec<u8>,
-        mcu_rom: Vec<u8>,
-        soc_manifest: Vec<u8>,
-        mcu_runtime: Vec<u8>,
-        network_rom: Vec<u8>,
+    pub(crate) struct TestBinaries {
+        pub(crate) vendor_pk_hash_u8: Vec<u8>,
+        pub(crate) caliptra_rom: Vec<u8>,
+        pub(crate) caliptra_fw: Vec<u8>,
+        pub(crate) mcu_rom: Vec<u8>,
+        pub(crate) soc_manifest: Vec<u8>,
+        pub(crate) mcu_runtime: Vec<u8>,
+        pub(crate) network_rom: Vec<u8>,
     }
 
-    fn prebuilt_binaries(
+    pub(crate) fn prebuilt_binaries(
         feature: Option<&str>,
         network_rom_feature: Option<&str>,
+        rom_feature: Option<&str>,
         binaries: &'static FirmwareBinaries,
     ) -> TestBinaries {
         let mut test_binaries = TestBinaries {
@@ -217,6 +221,11 @@ mod test {
             test_binaries.mcu_runtime = binaries.test_runtime(feature).expect(&err).clone();
         }
 
+        // check for prebuilt ROM with feature
+        if let Some(rf) = rom_feature {
+            test_binaries.mcu_rom = binaries.test_feature_rom(rf);
+        }
+
         // check for prebuilt network ROM with feature
         if let Some(net_feature) = network_rom_feature {
             test_binaries.network_rom = binaries.test_feature_network_rom(net_feature);
@@ -225,7 +234,7 @@ mod test {
         test_binaries
     }
 
-    fn build_test_binaries(
+    pub(crate) fn build_test_binaries(
         feature: Option<&str>,
         network_rom_feature: Option<&str>,
         rom_feature: Option<&str>,
@@ -304,9 +313,12 @@ mod test {
             mcu_runtime,
             network_rom,
         } = match FirmwareBinaries::from_env() {
-            Ok(binaries) if params.rom_feature.is_none() => {
-                prebuilt_binaries(params.feature, params.network_rom_feature, binaries)
-            }
+            Ok(binaries) => prebuilt_binaries(
+                params.feature,
+                params.network_rom_feature,
+                params.rom_feature,
+                binaries,
+            ),
             _ => {
                 println!("Could not find prebuilt firmware binaries, building firmware...");
                 build_test_binaries(
@@ -369,6 +381,10 @@ mod test {
                     Some(&mcu_runtime),
                 );
                 (Some(flash), vec![], vec![], vec![])
+            } else if params.network_boot {
+                // For network boot, only pass caliptra firmware to BMC.
+                // SoC manifest and MCU runtime are provided via the network.
+                (None, caliptra_fw, vec![], vec![])
             } else {
                 // For streaming boot, pass individual images to BMC
                 (None, caliptra_fw, soc_manifest, mcu_runtime)
@@ -398,6 +414,7 @@ mod test {
             otp_memory: otp_memory.as_deref(),
             primary_flash_initial_contents: flash_image,
             flash_boot: params.flash_boot,
+            network_boot: params.network_boot,
             ..Default::default()
         })
         .unwrap()

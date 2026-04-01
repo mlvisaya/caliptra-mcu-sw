@@ -4948,6 +4948,7 @@ dependencies = [
  "ecdsa",
  "emulator-consts",
  "emulator-periph",
+ "emulator-registers-generated",
  "fips204",
  "flash-image",
  "hex",

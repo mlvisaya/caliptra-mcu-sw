@@ -59,6 +59,7 @@ pldm-fw-pkg.workspace = true
 pldm-ua.workspace = true
 rand.workspace = true
 random-port.workspace = true
+emulator-registers-generated.workspace = true
 registers-generated.workspace = true
 sha2.workspace = true
 simple_logger.workspace = true
