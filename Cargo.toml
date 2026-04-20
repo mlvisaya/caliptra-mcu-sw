@@ -91,6 +91,7 @@ exclude = [
     # Uses lwip-rs with default features (alloc + TAP), which conflicts with
     # baremetal crates via Cargo feature unification. Build standalone.
     "network/app/example",
+    "network/app/example-ipv6",
 ]
 resolver = "2"
 
