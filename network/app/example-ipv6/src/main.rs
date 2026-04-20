@@ -63,10 +63,10 @@ fn storage_open(filename: &str) -> *mut c_void {
         .and_then(|s| s.to_str())
         .unwrap_or("download.bin");
 
-    let output_dir = "/tmp/tftp_downloads";
-    let _ = std::fs::create_dir_all(output_dir);
+    let output_dir = std::env::temp_dir().join("tftp_downloads");
+    let _ = std::fs::create_dir_all(&output_dir);
 
-    match File::create(format!("{}/{}", output_dir, basename)) {
+    match File::create(output_dir.join(basename)) {
         Ok(file) => {
             *FILE_HANDLE.lock().unwrap() = Some(file);
             1 as *mut c_void
