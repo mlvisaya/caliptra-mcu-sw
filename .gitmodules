@@ -5,4 +5,4 @@
 [submodule "network/net/lwip"]
 	path = network/net/lwip
 	url = https://github.com/chipsalliance/caliptra-lwip.git
-	branch = mlvisaya/stateful-dhcpv6
+	branch = caliptra-main
