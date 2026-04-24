@@ -13,3 +13,7 @@ lwip-rs = { workspace = true, default-features = false, features = ["baremetal-t
 network-drivers.workspace = true
 network-hil.workspace = true
 zerocopy.workspace = true
+
+[features]
+default = []
+ipv6-boot = ["lwip-rs/baremetal-dhcp6-stateful"]

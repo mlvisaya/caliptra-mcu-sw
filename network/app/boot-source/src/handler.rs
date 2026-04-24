@@ -11,6 +11,7 @@ use lwip_rs::ip::Ipv6Addr;
 use network_hil::network_mbox::{NetworkMailbox, NetworkMboxError, NetworkMboxStatus, Result};
 use zerocopy::{Immutable, IntoBytes};
 
+use crate::app::IpVersion;
 use crate::network;
 use crate::toc::Toc;
 
@@ -94,6 +95,7 @@ pub fn send_error<'a, M: NetworkMailbox<'a>>(
 pub fn handle_initiate_boot_start(
     data: &[u8],
     boot_flags: &core::cell::Cell<BootFlags>,
+    ip_version: IpVersion,
 ) -> Result<()> {
     let req: &InitiateBootRequest = match parse_fixed(data) {
         Some(r) => r,
@@ -101,7 +103,11 @@ pub fn handle_initiate_boot_start(
     };
 
     boot_flags.set(req.flags);
-    network::start_dhcp().map_err(|_| NetworkMboxError::Failed)?;
+    match ip_version {
+        IpVersion::V4 => network::start_dhcp().map_err(|_| NetworkMboxError::Failed)?,
+        #[cfg(feature = "ipv6-boot")]
+        IpVersion::V6 => network::start_dhcp6().map_err(|_| NetworkMboxError::Failed)?,
+    }
     Ok(())
 }
 
