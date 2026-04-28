@@ -22,7 +22,6 @@ use caliptra_emu_bus::{Bus, Clock, Timer};
 use caliptra_emu_cpu::{Cpu, Pic, RvInstr, StepAction};
 use caliptra_emu_periph::CaliptraRootBus as CaliptraMainRootBus;
 use caliptra_emu_periph::MailboxRequester;
-use caliptra_hw_model_types::DEFAULT_CPTRA_OBF_KEY;
 use caliptra_image_types::FwVerificationPqcKeyType;
 use caliptra_mcu_emulator_bmc::Bmc;
 use caliptra_mcu_emulator_caliptra::BytesOrPath;
@@ -449,7 +448,7 @@ impl Emulator {
             ocp_lock_en: cli.ocp_lock,
             debug_intent: true, // Emulator app defaults to debug intent enabled
             prod_dbg_unlock_keypairs: vec![],
-            cptra_obf_key: DEFAULT_CPTRA_OBF_KEY,
+            cptra_obf_key: Default::default(),
         })
         .expect("Failed to start Caliptra CPU");
 

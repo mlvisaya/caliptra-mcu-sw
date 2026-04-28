@@ -500,7 +500,11 @@ impl CaliptraBuilder {
         Ok(path)
     }
 
-    fn compile_caliptra_fw_cached(fpga: bool, ocp_lock: bool, svn: Option<u16>) -> Result<(PathBuf, String)> {
+    fn compile_caliptra_fw_cached(
+        fpga: bool,
+        ocp_lock: bool,
+        svn: Option<u16>,
+    ) -> Result<(PathBuf, String)> {
         let platform = if fpga { "fpga" } else { "emulator" };
         let ocp_lock_suffix = if ocp_lock { "-ocp-lock" } else { "" };
         if let Some(version) = Self::caliptra_version() {
@@ -641,7 +645,11 @@ impl CaliptraBuilder {
         Ok((new_bundle, vendor_hash, owner_hash))
     }
 
-    fn compile_caliptra_fw_uncached(fpga: bool, ocp_lock: bool, svn: Option<u16>) -> Result<(PathBuf, String)> {
+    fn compile_caliptra_fw_uncached(
+        fpga: bool,
+        ocp_lock: bool,
+        svn: Option<u16>,
+    ) -> Result<(PathBuf, String)> {
         let opts = caliptra_builder::ImageOptions {
             pqc_key_type: FwVerificationPqcKeyType::LMS,
             fw_svn: svn.unwrap_or(0) as u32,
