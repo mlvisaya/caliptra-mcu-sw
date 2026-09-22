@@ -1021,3 +1021,140 @@ function currently supplied by the VCK190/Versal processing-system path:
 The HTG-940 address map must be treated as a new platform contract. Existing
 physical addresses, UIO indices, reset semantics, and cache-coherency behavior
 must be validated rather than copied from this appendix.
+
+## Appendix B: USB initialization and recovery ownership
+
+This appendix separates the work performed by the external USB PHY, the
+LPCIP3511 device controller, the dedicated OCP recovery hardware, and MCU ROM.
+The USB hardware handles link-level protocol mechanics, but reset does not
+leave a configured or host-visible recovery device.
+
+### B.1 State after reset
+
+The LPCIP3511 device controller resets with `DEV_ADDR = 0`, `DEV_EN = 0`, and
+`DCON = 0`. The device therefore starts at address zero but remains disabled
+and disconnected from the host. Hardware can report VBUS presence, detect a
+USB bus reset, negotiate link speed, and perform packet-level signaling once
+the platform supplies the required clocks and releases reset.
+
+Board-level integration must provide and sequence the external PHY clock,
+controller clock, and reset. The current `LpcipUsbDriver` assumes that this has
+already occurred before `init_and_enumerate()` is called; it does not configure
+the board-level PHY clock or reset source itself. The HTG-940 integration must
+define this sequence and cannot assume that MCU reset alone makes the USB
+device ready.
+
+### B.2 Controller initialization by MCU ROM
+
+MCU ROM must initialize the device controller before enumeration can begin:
+
+1. Disable and disconnect Device 0 while its state is initialized.
+2. Disable and clear controller interrupts.
+3. Initialize the endpoint-list and data-buffer base registers.
+4. Clear endpoint descriptor memory, configure the SETUP descriptor, and arm
+    EP0 OUT to receive an eight-byte SETUP packet.
+5. Wait until hardware reports debounced VBUS.
+6. Set `DEV_EN` and `DCON` to enable the device and connect it to the bus.
+7. Enable EP0 and device-status interrupts.
+8. Wait for the host's USB bus reset, acknowledge the reset indication, and
+    re-arm EP0 OUT.
+
+Hardware performs the electrical and packet-level portions of these
+operations. It does not populate endpoint descriptors, connect the device, or
+provide the USB descriptors without firmware initialization.
+
+### B.3 Enumeration and `SET_ADDRESS`
+
+Enumeration is divided between the controller and MCU ROM. The controller
+receives SETUP packets, moves endpoint data, implements endpoint ACTIVE state,
+generates link handshakes, and reports transfer completion. MCU ROM reads and
+decodes each standard request and supplies the corresponding response.
+
+The current ROM driver handles at least:
+
+- `GET_DESCRIPTOR` for the device, configuration, language, and OCP interface
+  string descriptors;
+- `SET_ADDRESS`;
+- `SET_CONFIGURATION`;
+- `GET_CONFIGURATION`; and
+- `GET_STATUS`.
+
+For `SET_ADDRESS`, MCU ROM extracts the seven-bit address from `wValue`, writes
+it to `DEVCMDSTAT.DEV_ADDR`, and arms the EP0 IN zero-length status response.
+The controller treats the write as a pending address and commits it only after
+the status stage completes. Thus MCU ROM interprets and initiates the request,
+while hardware enforces the USB-required address-transition timing.
+
+The current `init_and_enumerate()` loop returns after configuration and the
+host's request for the OCP interface string descriptor. At that point the
+dedicated hardware path can claim OCP class requests.
+
+### B.4 OCP recovery hardware after enumeration
+
+The post-synchronizer arbiter recognizes OCP Recovery class requests on EP0
+for the recovery interface. When `CALIPTRA_CTRL.OCP_PATH_DISABLE` is clear, it
+routes those transfers to the dedicated OCP command decoder instead of the
+legacy firmware endpoint path. `OCP_PATH_DISABLE` resets to zero, so the OCP
+hardware claim path is enabled by default.
+
+The dedicated hardware then:
+
+- validates OCP command direction and transfer length;
+- serves capability and status reads from the recovery register aperture;
+- accepts `DEVICE_RESET`, `RECOVERY_CTRL`, and FIFO-control writes;
+- transfers `INDIRECT_FIFO_DATA` into the 64-DWORD recovery FIFO;
+- reports protocol errors and live FIFO status; and
+- asserts `payload_available` and `recovery_image_activated` sidebands.
+
+Consequently, MCU ROM does not need to parse and respond to every OCP USB
+class request when this hardware path is used. Static protocol capability
+fields have useful reset defaults, and the hardware owns USB command framing
+and FIFO ingress.
+
+### B.5 Firmware responsibilities during recovery
+
+The complete recovery flow is not autonomous. MCU ROM or equivalent platform
+recovery logic must still:
+
+1. Publish meaningful `DEVICE_STATUS`, recovery reason, `RECOVERY_STATUS`, and
+    recovery image index values through the firmware-visible recovery aperture.
+2. Observe `payload_available` and drain recovery data from
+    `INDIRECT_FIFO_DATA` quickly enough to permit continued host streaming.
+3. Observe `recovery_image_activated`, select the requested image, and clear or
+    acknowledge the stored activation request after accepting it.
+4. Forward each image through the Caliptra recovery interface and perform the
+    required authentication and boot-policy actions.
+5. Update recovery status for stage success, the next requested image, final
+    completion, or failure so the Recovery Agent can make progress.
+6. Handle supported reset requests and report firmware-detected protocol or
+    hardware failures when required.
+
+Therefore, the hardware can receive and buffer OCP commands without firmware
+servicing each EP0 transfer, but the Recovery Agent cannot complete the image
+sequence unless firmware or directly connected recovery logic consumes the
+hardware state and advances recovery.
+
+### B.6 Current repository integration status
+
+The current LPCIP ROM implementation is enabled by the
+`test-lpcip-usb-ocp-recovery` feature and calls `init_and_enumerate()` only on
+cold boot. Its scope intentionally ends after enumeration because the
+dedicated hardware is expected to claim subsequent OCP class requests.
+
+The USB wrapper exposes `payload_available` and `ocp_firmware_activated`, and
+provides an AHB aperture through which firmware can access recovery registers
+and FIFO data. In the current source tree, however, the compound USB wrapper is
+instantiated by the USB integration testbench and is not yet instantiated by
+the production Caliptra Subsystem top level. The generic MCU ROM recovery code
+also does not yet show a production path that consumes these USB hardware
+sidebands and the FIFO aperture.
+
+The final HTG-940 implementation must therefore verify all of the following
+before treating USB recovery as autonomous after reset:
+
+- board-level PHY clock and reset sequencing;
+- LPCIP controller and endpoint-memory address integration;
+- MCU interrupt routing and standard-request enumeration;
+- recovery AHB aperture visibility from MCU ROM;
+- routing of payload-available and image-activation indications; and
+- connection of the recovery FIFO consumer to the Caliptra image-loading flow.
