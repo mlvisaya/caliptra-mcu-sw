@@ -918,6 +918,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         for address in [0x2000_0008, 0x2000_2008] {

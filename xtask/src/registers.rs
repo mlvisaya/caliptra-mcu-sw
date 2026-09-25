@@ -358,21 +358,21 @@ field { sw = rw; hw = rw; onwrite = woset; precedence = hw; } DEV_SET_INT[31:31]
         (
             usb2_rdl_dir.join("usb_device_memory.rdl"),
             "mementries = MEMORY_ENTRIES;",
-            "mementries = 512;",
+            "mementries = 8192;",
         ),
         (
             PROJECT_ROOT.join("hw/caliptra-ss/src/integration/rtl/soc_address_map.rdl"),
             r#"external usb_device_memory #(
-.MEMORY_ENTRIES(512)
+.MEMORY_ENTRIES(8192)
 ) usb_dev0_mem @ 0x3000_0000;"#,
             "usb_device_memory usb_dev0_mem @ 0x3000_0000;",
         ),
         (
             PROJECT_ROOT.join("hw/caliptra-ss/src/integration/rtl/soc_address_map.rdl"),
             r#"external usb_device_memory #(
-.MEMORY_ENTRIES(512)
-) usb_dev1_mem @ 0x3000_1000;"#,
-            "usb_device_memory usb_dev1_mem @ 0x3000_1000;",
+.MEMORY_ENTRIES(8192)
+) usb_dev1_mem @ 0x3001_0000;"#,
+            "usb_device_memory usb_dev1_mem @ 0x3001_0000;",
         ),
     ];
 
@@ -925,6 +925,16 @@ fn emu_make_peripheral_trait(
         }
     }
 
+    let caliptra_event_mirror = (block_name_str == "usb_combo").then(|| {
+        quote! {
+            fn set_caliptra_event_mirror(
+                &mut self,
+                _sender: std::sync::mpsc::Sender<caliptra_emu_bus::Event>,
+            ) {
+            }
+        }
+    });
+
     let mut tokens = TokenStream::new();
     tokens.extend(quote! {
         pub trait #periph {
@@ -938,6 +948,7 @@ fn emu_make_peripheral_trait(
                 _events_from_mcu: std::sync::mpsc::Receiver<caliptra_emu_bus::Event>,
             ) {
             }
+            #caliptra_event_mirror
             fn poll(&mut self) {}
             fn warm_reset(&mut self) {}
             fn update_reset(&mut self) {}

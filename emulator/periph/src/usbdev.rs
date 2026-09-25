@@ -685,6 +685,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         (bus, host)
     }

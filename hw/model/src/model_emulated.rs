@@ -470,6 +470,7 @@ impl McuHwModel for ModelEmulated {
             None,
             None,
             None,
+            None,
             Some(Box::new(dma_ctrl)),
         );
 
