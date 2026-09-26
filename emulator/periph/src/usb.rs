@@ -51,11 +51,113 @@ const INTSTAT_EP0OUT: u32 = 1;
 const INTSTAT_EP0IN: u32 = 1 << 1;
 const INTSTAT_DEV_INT: u32 = 1 << 31;
 
+const ULPI_PHY_WDATA_SHIFT: u32 = 8;
+const ULPI_PHY_RDATA_SHIFT: u32 = 16;
+const ULPI_PHY_RW: u32 = 1 << 24;
+const ULPI_PHY_ACCESS: u32 = 1 << 25;
+const ULPI_PHY_MODE: u32 = 1 << 31;
+
+const USB3320_VENDOR_ID_LOW: u8 = 0x24;
+const USB3320_VENDOR_ID_HIGH: u8 = 0x04;
+const USB3320_PRODUCT_ID_LOW: u8 = 0x07;
+const USB3320_PRODUCT_ID_HIGH: u8 = 0x00;
+const USB3320_FUNCTION_CTRL_RESET: u8 = 1 << 5;
+
+#[derive(Debug)]
+struct Usb3320Phy {
+    function_ctrl: u8,
+    interface_ctrl: u8,
+    otg_ctrl: u8,
+    usb_int_en_rising: u8,
+    usb_int_en_falling: u8,
+    usb_int_status: u8,
+    usb_int_latch: u8,
+    debug: u8,
+    scratch: u8,
+}
+
+impl Usb3320Phy {
+    fn new() -> Self {
+        Self {
+            function_ctrl: 0x41,
+            interface_ctrl: 0,
+            otg_ctrl: 0x06,
+            usb_int_en_rising: 0,
+            usb_int_en_falling: 0,
+            usb_int_status: 0,
+            usb_int_latch: 0,
+            debug: 0,
+            scratch: 0,
+        }
+    }
+
+    fn read(&self, address: u8) -> u8 {
+        match address {
+            0x00 => USB3320_VENDOR_ID_LOW,
+            0x01 => USB3320_VENDOR_ID_HIGH,
+            0x02 => USB3320_PRODUCT_ID_LOW,
+            0x03 => USB3320_PRODUCT_ID_HIGH,
+            0x04 => self.function_ctrl,
+            0x07 => self.interface_ctrl,
+            0x0a => self.otg_ctrl,
+            0x0d => self.usb_int_en_rising,
+            0x10 => self.usb_int_en_falling,
+            0x13 => self.usb_int_status,
+            0x14 => self.usb_int_latch,
+            0x15 => self.debug,
+            0x16 => self.scratch,
+            _ => 0,
+        }
+    }
+
+    fn write(&mut self, address: u8, value: u8) {
+        match address {
+            0x04 => self.write_function_ctrl(value),
+            0x05 => self.set_function_ctrl(value),
+            0x06 => self.function_ctrl &= !value,
+            0x07 => self.interface_ctrl = value,
+            0x08 => self.interface_ctrl |= value,
+            0x09 => self.interface_ctrl &= !value,
+            0x0a => self.otg_ctrl = value,
+            0x0b => self.otg_ctrl |= value,
+            0x0c => self.otg_ctrl &= !value,
+            0x0d => self.usb_int_en_rising = value,
+            0x0e => self.usb_int_en_rising |= value,
+            0x0f => self.usb_int_en_rising &= !value,
+            0x10 => self.usb_int_en_falling = value,
+            0x11 => self.usb_int_en_falling |= value,
+            0x12 => self.usb_int_en_falling &= !value,
+            0x16 => self.scratch = value,
+            0x17 => self.scratch |= value,
+            0x18 => self.scratch &= !value,
+            _ => {}
+        }
+    }
+
+    fn write_function_ctrl(&mut self, value: u8) {
+        if value & USB3320_FUNCTION_CTRL_RESET != 0 {
+            *self = Self::new();
+        } else {
+            self.function_ctrl = value;
+        }
+    }
+
+    fn set_function_ctrl(&mut self, value: u8) {
+        if value & USB3320_FUNCTION_CTRL_RESET != 0 {
+            *self = Self::new();
+        } else {
+            self.function_ctrl |= value;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct LpcipState {
     memory: UsbDev0MemGenerated,
     devcmdstat: u32,
     intstat: u32,
+    ulpidebug: u32,
+    phy: Usb3320Phy,
 }
 
 impl LpcipState {
@@ -64,6 +166,8 @@ impl LpcipState {
             memory: UsbDev0MemGenerated::new(),
             devcmdstat: DEVCMDSTAT_VBUS_DEBOUNCED,
             intstat: 0,
+            ulpidebug: 0,
+            phy: Usb3320Phy::new(),
         }
     }
 
@@ -670,6 +774,39 @@ impl UsbComboPeripheral for UsbCombo {
         self.lpcip_state.lock().unwrap().intstat &= !val.reg.get();
     }
 
+    fn read_dev0_csr_ulpidebug(
+        &mut self,
+    ) -> caliptra_emu_bus::ReadWriteRegister<
+        u32,
+        caliptra_mcu_registers_generated::usb_combo::bits::UlpidebugT::Register,
+    > {
+        caliptra_emu_bus::ReadWriteRegister::new(self.lpcip_state.lock().unwrap().ulpidebug)
+    }
+
+    fn write_dev0_csr_ulpidebug(
+        &mut self,
+        val: caliptra_emu_bus::ReadWriteRegister<
+            u32,
+            caliptra_mcu_registers_generated::usb_combo::bits::UlpidebugT::Register,
+        >,
+    ) {
+        let mut state = self.lpcip_state.lock().unwrap();
+        let mut value = val.reg.get();
+        if value & ULPI_PHY_ACCESS != 0 && value & ULPI_PHY_MODE != 0 {
+            let address = value as u8;
+            if value & ULPI_PHY_RW != 0 {
+                state
+                    .phy
+                    .write(address, (value >> ULPI_PHY_WDATA_SHIFT) as u8);
+            } else {
+                let read_data = state.phy.read(address);
+                value = (value & !(0xff << ULPI_PHY_RDATA_SHIFT))
+                    | (u32::from(read_data) << ULPI_PHY_RDATA_SHIFT);
+            }
+        }
+        state.ulpidebug = value & !ULPI_PHY_ACCESS;
+    }
+
     fn write_recovery_indirect_fifo_ctrl_0(
         &mut self,
         val: caliptra_emu_bus::ReadWriteRegister<
@@ -895,6 +1032,26 @@ mod tests {
         )
     }
 
+    fn ulpi_read(usb: &mut UsbCombo, address: u8) -> u8 {
+        usb.write_dev0_csr_ulpidebug(caliptra_emu_bus::ReadWriteRegister::new(
+            ULPI_PHY_MODE | ULPI_PHY_ACCESS | u32::from(address),
+        ));
+        let result = usb.read_dev0_csr_ulpidebug().reg.get();
+        assert_eq!(result & ULPI_PHY_ACCESS, 0);
+        ((result >> ULPI_PHY_RDATA_SHIFT) & 0xff) as u8
+    }
+
+    fn ulpi_write(usb: &mut UsbCombo, address: u8, value: u8) {
+        usb.write_dev0_csr_ulpidebug(caliptra_emu_bus::ReadWriteRegister::new(
+            ULPI_PHY_MODE
+                | ULPI_PHY_ACCESS
+                | ULPI_PHY_RW
+                | (u32::from(value) << ULPI_PHY_WDATA_SHIFT)
+                | u32::from(address),
+        ));
+        assert_eq!(usb.read_dev0_csr_ulpidebug().reg.get() & ULPI_PHY_ACCESS, 0);
+    }
+
     #[test]
     fn mcu_bus_routes_all_usb_windows() {
         let mut bus = AutoRootBus::new(
@@ -1064,7 +1221,6 @@ mod tests {
         usb.write_dev0_csr_devcmdstat(caliptra_emu_bus::ReadWriteRegister::new(
             DEVCMDSTAT_DEV_EN | DEVCMDSTAT_DCON,
         ));
-
         let setup = [0x80, 6, 0, 1, 0, 0, 18, 0];
         host.host_setup(&setup).unwrap();
         assert_eq!(memory.read_usb_dev0_mem(0x100 / 4), 0x0100_0680);
@@ -1085,6 +1241,63 @@ mod tests {
             0
         );
         assert_ne!(usb.read_dev0_csr_intstat().reg.get() & INTSTAT_EP0IN, 0);
+    }
+
+    #[test]
+    fn ulpi_gateway_reports_usb3320_identity() {
+        let mut usb = UsbCombo::new();
+
+        assert_ne!(
+            usb.read_dev0_csr_config().reg.get()
+                & caliptra_mcu_registers_generated::usb_combo::bits::ConfigT::Ulpi::SET.value,
+            0
+        );
+        assert_eq!(ulpi_read(&mut usb, 0x00), USB3320_VENDOR_ID_LOW);
+        assert_eq!(ulpi_read(&mut usb, 0x01), USB3320_VENDOR_ID_HIGH);
+        assert_eq!(ulpi_read(&mut usb, 0x02), USB3320_PRODUCT_ID_LOW);
+        assert_eq!(ulpi_read(&mut usb, 0x03), USB3320_PRODUCT_ID_HIGH);
+
+        ulpi_write(&mut usb, 0x00, 0xff);
+        assert_eq!(ulpi_read(&mut usb, 0x00), USB3320_VENDOR_ID_LOW);
+    }
+
+    #[test]
+    fn ulpi_gateway_applies_write_set_and_clear_aliases() {
+        let mut usb = UsbCombo::new();
+
+        ulpi_write(&mut usb, 0x16, 0xa5);
+        assert_eq!(ulpi_read(&mut usb, 0x16), 0xa5);
+        ulpi_write(&mut usb, 0x17, 0x0f);
+        assert_eq!(ulpi_read(&mut usb, 0x16), 0xaf);
+        ulpi_write(&mut usb, 0x18, 0xf0);
+        assert_eq!(ulpi_read(&mut usb, 0x16), 0x0f);
+
+        ulpi_write(&mut usb, 0x0a, 0x22);
+        ulpi_write(&mut usb, 0x0b, 0x05);
+        ulpi_write(&mut usb, 0x0c, 0x20);
+        assert_eq!(ulpi_read(&mut usb, 0x0a), 0x07);
+    }
+
+    #[test]
+    fn ulpi_function_control_reset_restores_phy_defaults() {
+        let mut usb = UsbCombo::new();
+
+        ulpi_write(&mut usb, 0x04, 0x40);
+        ulpi_write(&mut usb, 0x0a, 0);
+        ulpi_write(&mut usb, 0x16, 0xa5);
+        ulpi_write(&mut usb, 0x05, USB3320_FUNCTION_CTRL_RESET);
+
+        assert_eq!(ulpi_read(&mut usb, 0x04), 0x41);
+        assert_eq!(ulpi_read(&mut usb, 0x0a), 0x06);
+        assert_eq!(ulpi_read(&mut usb, 0x16), 0);
+    }
+
+    #[test]
+    fn ulpi_gateway_ignores_invalid_register_writes() {
+        let mut usb = UsbCombo::new();
+
+        ulpi_write(&mut usb, 0xfe, 0xa5);
+        assert_eq!(ulpi_read(&mut usb, 0xfe), 0);
     }
 
     #[test]
