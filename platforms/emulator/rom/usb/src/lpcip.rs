@@ -31,10 +31,23 @@ const STALL: u32 = 1 << 29;
 const DISABLED: u32 = 1 << 30;
 const ACTIVE: u32 = 1 << 31;
 const IMPLEMENTED_INTERRUPTS: u32 = 0xc000_ffff;
+const DEFAULT_ULPI_POLL_LIMIT: u32 = 1_000_000;
+
+const USB3320_VENDOR_ID: [u8; 2] = [0x24, 0x04];
+const USB3320_PRODUCT_ID: [u8; 2] = [0x07, 0x00];
+const USB3320_FUNCTION_CTRL: u8 = 0x04;
+const USB3320_OTG_CTRL: u8 = 0x0a;
+const USB3320_SCRATCH: u8 = 0x16;
+const USB3320_SCRATCH_SET: u8 = 0x17;
+const USB3320_SCRATCH_CLEAR: u8 = 0x18;
+const USB3320_HS_DEVICE_FUNCTION_CTRL: u8 = 0x40;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LpcipUsbError {
     Timeout,
+    UnsupportedPhy,
+    PhyIdentityMismatch,
+    PhyScratchMismatch,
 }
 
 pub struct LpcipUsbDriver {
@@ -66,9 +79,10 @@ impl LpcipUsbDriver {
     /// controller clock before calling this method.
     pub fn init_and_enumerate(&mut self) -> Result<(), LpcipUsbError> {
         self.disconnect_and_initialize();
+        self.initialize_phy()?;
         self.wait_for_vbus()?;
-        self.connect();
         self.enable_interrupts();
+        self.connect();
         self.wait_for_bus_reset()?;
         let mut configured = false;
 
@@ -107,6 +121,99 @@ impl LpcipUsbDriver {
                 }
             }
         }
+    }
+
+    fn initialize_phy(&self) -> Result<(), LpcipUsbError> {
+        if !self
+            .regs
+            .dev0_csr_config
+            .is_set(usb_combo::bits::ConfigT::Ulpi)
+        {
+            return Err(LpcipUsbError::UnsupportedPhy);
+        }
+
+        self.regs
+            .dev0_csr_ulpidebug
+            .write(usb_combo::bits::UlpidebugT::PhyMode::SET);
+
+        let vendor_id = [self.ulpi_read(0x00)?, self.ulpi_read(0x01)?];
+        let product_id = [self.ulpi_read(0x02)?, self.ulpi_read(0x03)?];
+        if vendor_id != USB3320_VENDOR_ID || product_id != USB3320_PRODUCT_ID {
+            return Err(LpcipUsbError::PhyIdentityMismatch);
+        }
+
+        self.verify_phy_scratch()?;
+        self.ulpi_write(USB3320_FUNCTION_CTRL, USB3320_HS_DEVICE_FUNCTION_CTRL)?;
+        self.ulpi_write(USB3320_OTG_CTRL, 0)?;
+        Ok(())
+    }
+
+    fn verify_phy_scratch(&self) -> Result<(), LpcipUsbError> {
+        self.ulpi_write(USB3320_SCRATCH, 0xa5)?;
+        if self.ulpi_read(USB3320_SCRATCH)? != 0xa5 {
+            return Err(LpcipUsbError::PhyScratchMismatch);
+        }
+
+        self.ulpi_write(USB3320_SCRATCH_SET, 0x0f)?;
+        if self.ulpi_read(USB3320_SCRATCH)? != 0xaf {
+            return Err(LpcipUsbError::PhyScratchMismatch);
+        }
+
+        self.ulpi_write(USB3320_SCRATCH_CLEAR, 0xf0)?;
+        if self.ulpi_read(USB3320_SCRATCH)? != 0x0f {
+            return Err(LpcipUsbError::PhyScratchMismatch);
+        }
+        Ok(())
+    }
+
+    fn ulpi_read(&self, address: u8) -> Result<u8, LpcipUsbError> {
+        let transaction = Self::ulpi_transaction(address);
+        self.regs.dev0_csr_ulpidebug.set(transaction);
+        self.regs
+            .dev0_csr_ulpidebug
+            .set(transaction | usb_combo::bits::UlpidebugT::PhyAccess::SET.value);
+        self.wait_for_ulpi_access()?;
+        Ok(self
+            .regs
+            .dev0_csr_ulpidebug
+            .read(usb_combo::bits::UlpidebugT::PhyRdata) as u8)
+    }
+
+    fn ulpi_write(&self, address: u8, value: u8) -> Result<(), LpcipUsbError> {
+        let transaction = Self::ulpi_transaction(address)
+            | usb_combo::bits::UlpidebugT::PhyWdata
+                .val(u32::from(value))
+                .value
+            | usb_combo::bits::UlpidebugT::PhyRw::SET.value;
+        self.regs.dev0_csr_ulpidebug.set(transaction);
+        self.regs
+            .dev0_csr_ulpidebug
+            .set(transaction | usb_combo::bits::UlpidebugT::PhyAccess::SET.value);
+        self.wait_for_ulpi_access()
+    }
+
+    fn ulpi_transaction(address: u8) -> u32 {
+        usb_combo::bits::UlpidebugT::PhyMode::SET.value
+            | usb_combo::bits::UlpidebugT::PhyAddr
+                .val(u32::from(address & 0x0f))
+                .value
+            | usb_combo::bits::UlpidebugT::PhyAddrHigh
+                .val(u32::from(address >> 4))
+                .value
+    }
+
+    fn wait_for_ulpi_access(&self) -> Result<(), LpcipUsbError> {
+        let poll_limit = self.poll_limit.unwrap_or(DEFAULT_ULPI_POLL_LIMIT);
+        for _ in 0..poll_limit {
+            if !self
+                .regs
+                .dev0_csr_ulpidebug
+                .is_set(usb_combo::bits::UlpidebugT::PhyAccess)
+            {
+                return Ok(());
+            }
+        }
+        Err(LpcipUsbError::Timeout)
     }
 
     fn disconnect_and_initialize(&self) {
@@ -350,5 +457,10 @@ mod tests {
             LpcipUsbDriver::buffer_descriptor(OUT_BUFFER_OFFSET, SETUP_PACKET_LEN),
             (8 << NBYTES_SHIFT) | 5
         );
+    }
+
+    #[test]
+    fn ulpi_transaction_encodes_full_register_address_and_mode() {
+        assert_eq!(LpcipUsbDriver::ulpi_transaction(0x16), 0x8000_0016);
     }
 }

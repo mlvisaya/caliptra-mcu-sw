@@ -219,6 +219,10 @@ impl LpcipUsbHostController {
             == DEVCMDSTAT_DEV_EN | DEVCMDSTAT_DCON
     }
 
+    pub fn ulpi_phy_register(&self, address: u8) -> u8 {
+        self.state.lock().unwrap().phy.read(address)
+    }
+
     pub fn bus_reset(&self) {
         let mut state = self.state.lock().unwrap();
         state.devcmdstat &= !DEVCMDSTAT_DEV_ADDR_MASK;

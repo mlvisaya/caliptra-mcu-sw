@@ -140,11 +140,22 @@ write/set/clear aliases used by the NXP initialization sequence. The complete
 
 ### Phase 2: ROM PHY initialization
 
+Status: complete as of 2026-09-25.
+
 - Add a small no-allocation USB3320 driver around the generated `ULPIDEBUG` register.
 - Add bounded polling and explicit errors for timeout, identity mismatch, and Scratch failure.
 - Add a platform-ready contract for external reset and clock setup.
 - Reorder controller initialization so attach occurs only after PHY, packet memory, EP0, and interrupt state are valid.
 - Preserve the current OCP descriptors and standard enumeration behavior.
+
+The LPCIP ROM driver now checks Device 0 ULPI support, selects ULPI mode, verifies
+the USB3320 vendor and product IDs, exercises the Scratch write/set/clear aliases,
+and configures high-speed peripheral Function Control and device-mode OTG Control.
+Each gateway access uses bounded `PHY_ACCESS` polling, and PHY failures prevent
+Device 0 from attaching. The platform contract remains explicit: pin routing,
+external reset release, and the 60 MHz controller/PHY clock must be ready before
+`init_and_enumerate` is called. A ROM hardware-model test verifies the final PHY
+state at Device 0 attach.
 
 ### Phase 3: Unified Device 0 and OCP path
 

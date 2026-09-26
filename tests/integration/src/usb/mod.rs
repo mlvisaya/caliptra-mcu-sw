@@ -326,21 +326,52 @@ mod tests {
             );
         });
 
-        for step in 0..50_000_000 {
-            if agent_thread.is_finished() {
-                break;
-            }
+        let mut steps = 0_u64;
+        while !agent_thread.is_finished() {
             hw.step();
-            if step % 1_000 == 0 {
+            steps += 1;
+            if steps % 1_000 == 0 {
                 std::thread::yield_now();
             }
         }
-        assert!(
-            agent_thread.is_finished(),
-            "USB/IP recovery agent timed out"
-        );
         agent_thread.join().unwrap();
         server_thread.join().unwrap().unwrap();
+        lock.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(all(target_os = "linux", not(feature = "fpga_realtime")))]
+    #[test]
+    fn lpcip_rom_initializes_usb3320_before_connect() {
+        let lock = TEST_LOCK.lock().unwrap();
+
+        let mut hw = start_runtime_hw_model(TestParams {
+            rom_feature: Some("test-lpcip-usb-ocp-recovery"),
+            i3c_port: Some(PortPicker::new().pick().unwrap()),
+            flash_boot: true,
+            rom_only: true,
+            ..Default::default()
+        });
+        let host = hw.lpcip_usb_host_controller.clone();
+
+        for _ in 0..50_000_000 {
+            hw.step();
+            if host.device_enabled() {
+                break;
+            }
+        }
+
+        assert!(
+            host.device_enabled(),
+            "firmware did not enable LPCIP USB device"
+        );
+        assert_eq!(host.ulpi_phy_register(0x00), 0x24);
+        assert_eq!(host.ulpi_phy_register(0x01), 0x04);
+        assert_eq!(host.ulpi_phy_register(0x02), 0x07);
+        assert_eq!(host.ulpi_phy_register(0x03), 0x00);
+        assert_eq!(host.ulpi_phy_register(0x04), 0x40);
+        assert_eq!(host.ulpi_phy_register(0x0a), 0x00);
+        assert_eq!(host.ulpi_phy_register(0x16), 0x0f);
+
         lock.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -1047,6 +1078,11 @@ mod tests {
         assert_eq!(u32::from_be_bytes(reply[4..8].try_into().unwrap()), seqnum);
         assert_eq!(i32::from_be_bytes(reply[20..24].try_into().unwrap()), 0);
         let actual_length = u32::from_be_bytes(reply[24..28].try_into().unwrap()) as usize;
+
+        if direction == USBIP_DIR_OUT {
+            assert_eq!(actual_length, out_data.len());
+            return Vec::new();
+        }
 
         let mut data = vec![0; actual_length];
         stream.read_exact(&mut data).unwrap();
