@@ -109,6 +109,33 @@ ROM owns software-visible USB initialization:
 
 The ROM implementation should use the generated Caliptra SS register fields. It must not copy the old Janus `0x4940_0000` controller address, `0x2400_2000` DMA address, host `PORTMODE` dependency, or FPGA-specific `PLLON` aliases.
 
+### Janus hardware memory map
+
+The emulator, the current Caliptra FPGA platform, and the NXP Janus FPGA do not
+share one MCU address map. Before running this flow on Janus hardware, the ROM
+and test firmware must use a Janus-specific platform mapping rather than the
+generated emulator addresses.
+
+| Region | NXP Janus FPGA | Current emulator | Current Caliptra FPGA platform |
+| --- | ---: | ---: | ---: |
+| MCU ROM | `0x8000_0000`, 256 KiB | `0x8000_0000`, 64 KiB | `0xb004_0000`, 128 KiB |
+| MCU SRAM | `0x2200_0000`-`0x223f_ffff`, four 1 MiB banks | `0x4000_0000`, 1 MiB | `0xa8c0_0000`, 512 KiB |
+| USB Device 0 registers | `0x4940_0000`, 4 KiB | `0x2000_0000` compound aperture | Not currently declared by the FPGA platform configuration |
+| USB host registers | `0x4940_1000`, 4 KiB | Not mounted in the current SoC map | Not currently declared by the FPGA platform configuration |
+| USB OCP Recovery registers | `0x4940_2000`, 4 KiB | `0x2000_0800`, inside the compound aperture | Not currently declared by the FPGA platform configuration |
+| USB packet/DMA SRAM | `0x2400_2000`, 8 KiB | `0x3000_0000`, 64 KiB | Not currently declared by the FPGA platform configuration |
+
+Caliptra core ROM is not the `MCU ROM` row above. It remains in the Caliptra
+core's private address space at `0x0000_0000` with the size defined by the
+selected Caliptra ROM build (currently 96 KiB).
+
+Janus support should select these bases through platform-specific constants or
+injected register-block references. It must not change the generated Caliptra
+SS map globally, because emulator and Caliptra SS RTL tests depend on that map.
+The hardware preflight must also verify the synthesized Janus address map before
+loading firmware; matching register layouts do not imply matching absolute
+addresses or aperture sizes.
+
 ### OCP recovery hardware model
 
 The emulator's Device 0 path will mirror the RTL ownership rules:
@@ -159,11 +186,27 @@ state at Device 0 attach.
 
 ### Phase 3: Unified Device 0 and OCP path
 
+Status: complete as of 2026-09-25.
+
 - Route every USB/IP EP0 SETUP through the LPCIP Device 0 model first.
 - Move OCP classification into the modeled post-SETUP arbitration point.
 - Replace the USB/IP adapter's direct pre-controller `UsbRecoveryHost` dispatch.
 - Model claimed DATA and STATUS ownership, STALL, replacement SETUP, reset, and abort behavior.
 - Keep the recovery register/FIFO implementation shared with Caliptra event handling.
+
+The USB/IP adapter now deposits every LPCIP SETUP in Device 0 packet memory
+before invoking the OCP classifier. Non-OCP requests continue through the ROM
+endpoint path without duplicate SETUP delivery, while claimed OCP requests use
+the shared recovery register and FIFO model for their transaction-level DATA
+and STATUS handling. The peripheral tracks claim and persistent protocol-STALL
+ownership and releases it on a successful replacement SETUP, USB bus reset,
+Device 0 disconnect/reset, path disable, or firmware `OCP_CLAIM_ABORT`.
+
+Focused tests cover ownership transitions and verify that a claimed OCP SETUP
+is visible in the physical Device 0 SETUP buffer. The USB/IP integration test
+mixes ROM-owned enumeration with hardware-owned OCP register and FIFO traffic.
+Packet retries and PING remain abstracted inside transaction-level completion;
+pin-cycle USB and ULPI timing remain outside the emulator model by design.
 
 ### Phase 4: End-to-end and FPGA parity
 
@@ -171,6 +214,7 @@ state at Device 0 attach.
 - Run the Linux `libusb` over USB/IP streaming-boot test.
 - Add negative tests for PHY identity failure, ULPI timeout, Scratch failure, disabled OCP path, malformed OCP SETUP, reset during a claim, and non-OCP class requests.
 - Compare ROM register traces against the NXP bring-up sequence and current Caliptra SS programmer's guide.
+- Add/select the Janus platform memory map and confirm the synthesized USB register and packet-RAM apertures before loading ROM or test firmware.
 - Run the same recovery-agent image sequence against FPGA hardware through the USB3320 daughtercard.
 
 ## Acceptance criteria

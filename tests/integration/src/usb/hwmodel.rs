@@ -96,6 +96,11 @@ impl HwModelUsbDevice {
 
 impl UsbIpDevice for HwModelUsbDevice {
     fn control(&mut self, request: UsbControlRequest<'_>) -> io::Result<Vec<u8>> {
+        let setup_forwarded = matches!(self.host, StandardUsbHost::Lpcip(_));
+        if setup_forwarded {
+            self.setup(&request.setup)?;
+        }
+
         if let Some(recovery_host) = &self.recovery_host {
             match recovery_host.control(request.setup, request.data) {
                 Ok(UsbControlTransferResult::Complete(response)) => return Ok(response),
@@ -118,7 +123,9 @@ impl UsbIpDevice for HwModelUsbDevice {
         let device_to_host = request.setup[0] & 0x80 != 0;
         let requested_length = u16::from_le_bytes([request.setup[6], request.setup[7]]) as usize;
 
-        self.setup(&request.setup)?;
+        if !setup_forwarded {
+            self.setup(&request.setup)?;
+        }
 
         if device_to_host {
             let mut response = Vec::with_capacity(requested_length);

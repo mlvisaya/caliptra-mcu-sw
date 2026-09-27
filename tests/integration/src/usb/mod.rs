@@ -193,6 +193,7 @@ mod tests {
             "firmware did not enable LPCIP USB device"
         );
         lpcip_host.bus_reset();
+        let setup_observer = lpcip_host.clone();
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let server_address = listener.local_addr().unwrap();
@@ -336,6 +337,19 @@ mod tests {
         }
         agent_thread.join().unwrap();
         server_thread.join().unwrap().unwrap();
+        assert_eq!(
+            setup_observer.setup_packet(),
+            [
+                0xa1,
+                0,
+                RecoveryCommand::IndirectFifoStatus as u8,
+                0,
+                0,
+                0,
+                20,
+                0,
+            ]
+        );
         lock.fetch_add(1, Ordering::Relaxed);
     }
 

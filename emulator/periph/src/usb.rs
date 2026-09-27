@@ -63,6 +63,13 @@ const USB3320_PRODUCT_ID_LOW: u8 = 0x07;
 const USB3320_PRODUCT_ID_HIGH: u8 = 0x00;
 const USB3320_FUNCTION_CTRL_RESET: u8 = 1 << 5;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OcpEp0State {
+    Idle,
+    Claimed,
+    ProtocolStall,
+}
+
 #[derive(Debug)]
 struct Usb3320Phy {
     function_ctrl: u8,
@@ -158,6 +165,7 @@ struct LpcipState {
     intstat: u32,
     ulpidebug: u32,
     phy: Usb3320Phy,
+    ocp_ep0_state: OcpEp0State,
 }
 
 impl LpcipState {
@@ -168,6 +176,7 @@ impl LpcipState {
             intstat: 0,
             ulpidebug: 0,
             phy: Usb3320Phy::new(),
+            ocp_ep0_state: OcpEp0State::Idle,
         }
     }
 
@@ -223,11 +232,18 @@ impl LpcipUsbHostController {
         self.state.lock().unwrap().phy.read(address)
     }
 
+    pub fn setup_packet(&self) -> [u8; 8] {
+        let mut state = self.state.lock().unwrap();
+        let offset = LpcipState::descriptor_buffer_offset(state.descriptor(SETUP_DESCRIPTOR));
+        state.read_buffer(offset, 8).try_into().unwrap()
+    }
+
     pub fn bus_reset(&self) {
         let mut state = self.state.lock().unwrap();
         state.devcmdstat &= !DEVCMDSTAT_DEV_ADDR_MASK;
         state.devcmdstat |= DEVCMDSTAT_DRES_C;
         state.intstat |= INTSTAT_DEV_INT;
+        state.ocp_ep0_state = OcpEp0State::Idle;
     }
 
     pub fn host_setup(&self, data: &[u8]) -> Result<(), UsbTransactionError> {
@@ -397,10 +413,13 @@ impl UsbCombo {
         data: &[u8],
     ) -> Result<UsbControlTransferResult, UsbRecoveryError> {
         let request_type = setup[0];
-        let command = setup[2];
-        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+        self.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Idle;
 
-        if request_type & 0x7f != 0x21
+        if self.generated.read_recovery_caliptra_ctrl().reg.get()
+            & caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::OcpPathDisable::SET
+                .value
+            != 0
+            || request_type & 0x7f != 0x21
             || setup[1] != 0
             || setup[3] != 0
             || setup[4] != OCP_RECOVERY_INTERFACE
@@ -409,6 +428,24 @@ impl UsbCombo {
             return Ok(UsbControlTransferResult::NotClaimed);
         }
 
+        self.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Claimed;
+        let result = self.handle_claimed_control_transfer(setup, data);
+        self.lpcip_state.lock().unwrap().ocp_ep0_state = match result {
+            Ok(UsbControlTransferResult::Complete(_)) => OcpEp0State::Idle,
+            Ok(UsbControlTransferResult::NotClaimed) => OcpEp0State::Idle,
+            Err(_) => OcpEp0State::ProtocolStall,
+        };
+        result
+    }
+
+    fn handle_claimed_control_transfer(
+        &mut self,
+        setup: [u8; 8],
+        data: &[u8],
+    ) -> Result<UsbControlTransferResult, UsbRecoveryError> {
+        let request_type = setup[0];
+        let command = setup[2];
+        let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
         let command = RecoveryCommand::try_from(command).map_err(|_| UsbRecoveryError::Stall)?;
         if command == RecoveryCommand::IndirectFifoData {
             let transfer_dwords = length.div_ceil(4);
@@ -757,6 +794,11 @@ impl UsbComboPeripheral for UsbCombo {
             | (1 << 21)
             | (0x7 << 29);
         state.devcmdstat = (state.devcmdstat & !software_mask) | (write_value & software_mask);
+        if state.devcmdstat & (DEVCMDSTAT_DEV_EN | DEVCMDSTAT_DCON)
+            != DEVCMDSTAT_DEV_EN | DEVCMDSTAT_DCON
+        {
+            state.ocp_ep0_state = OcpEp0State::Idle;
+        }
     }
 
     fn read_dev0_csr_intstat(
@@ -809,6 +851,25 @@ impl UsbComboPeripheral for UsbCombo {
             }
         }
         state.ulpidebug = value & !ULPI_PHY_ACCESS;
+    }
+
+    fn write_recovery_caliptra_ctrl(
+        &mut self,
+        val: caliptra_emu_bus::ReadWriteRegister<
+            u32,
+            caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::Register,
+        >,
+    ) {
+        let claim_abort =
+            caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::OcpClaimAbort::SET
+                .value;
+        if val.reg.get() & claim_abort != 0 {
+            self.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Idle;
+        }
+        self.generated
+            .write_recovery_caliptra_ctrl(caliptra_emu_bus::ReadWriteRegister::new(
+                val.reg.get() & !claim_abort,
+            ));
     }
 
     fn write_recovery_indirect_fifo_ctrl_0(
@@ -1352,6 +1413,72 @@ mod tests {
         let result = usb.handle_control_transfer([0x21, 0, 0x26, 0, 0, 0, 2, 0], &[0xaa, 0xbb]);
         assert_eq!(result, Err(UsbRecoveryError::Stall));
         assert_eq!(usb.read_recovery_recovery_ctrl().reg.get(), before);
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::ProtocolStall
+        );
+
+        let replacement = usb
+            .handle_control_transfer([0x80, 6, 0, 1, 0, 0, 18, 0], &[])
+            .unwrap();
+        assert_eq!(replacement, UsbControlTransferResult::NotClaimed);
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::Idle
+        );
+    }
+
+    #[test]
+    fn reset_disconnect_and_firmware_abort_release_ocp_claim() {
+        let mut usb = UsbCombo::new();
+        let host = usb.lpcip_host_controller();
+
+        usb.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Claimed;
+        host.bus_reset();
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::Idle
+        );
+
+        usb.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Claimed;
+        usb.write_dev0_csr_devcmdstat(caliptra_emu_bus::ReadWriteRegister::new(0));
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::Idle
+        );
+
+        usb.lpcip_state.lock().unwrap().ocp_ep0_state = OcpEp0State::Claimed;
+        usb.write_recovery_caliptra_ctrl(caliptra_emu_bus::ReadWriteRegister::new(
+            caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::OcpClaimAbort::SET
+                .value,
+        ));
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::Idle
+        );
+        assert_eq!(
+            usb.read_recovery_caliptra_ctrl().reg.get()
+                & caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::OcpClaimAbort::SET.value,
+            0
+        );
+    }
+
+    #[test]
+    fn disabled_ocp_path_leaves_setup_unclaimed() {
+        let mut usb = UsbCombo::new();
+        usb.write_recovery_caliptra_ctrl(caliptra_emu_bus::ReadWriteRegister::new(
+            caliptra_mcu_registers_generated::usb_combo::bits::CaliptraCtrl::OcpPathDisable::SET
+                .value,
+        ));
+
+        let result = usb
+            .handle_control_transfer([0xa1, 0, 0x22, 0, 0, 0, 15, 0], &[])
+            .unwrap();
+        assert_eq!(result, UsbControlTransferResult::NotClaimed);
+        assert_eq!(
+            usb.lpcip_state.lock().unwrap().ocp_ep0_state,
+            OcpEp0State::Idle
+        );
     }
 
     #[test]
