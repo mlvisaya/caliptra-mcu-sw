@@ -14,9 +14,11 @@ chrono.workspace = true
 [dependencies]
 caliptra-mcu-config.workspace = true
 caliptra-mcu-config-fpga.workspace = true
+caliptra-mcu-error.workspace = true
 caliptra-mcu-rom-common.workspace = true
 caliptra-mcu-registers-generated.workspace = true
 caliptra-mcu-romtime.workspace = true
+caliptra-mcu-usb-common.workspace = true
 tock-registers.workspace = true
 zeroize.workspace = true
 
@@ -50,4 +52,5 @@ test-svn-manifest = ["caliptra-mcu-rom-common/svn-manifest"]
 test-pldm-streaming-boot = []
 test-ocp-lock = []
 test-streaming-boot-flash-write-back = []
+test-lpcip-usb-ocp-recovery = ["hw-2-1"]
 test-usb-ocp-recovery = ["hw-2-1"]

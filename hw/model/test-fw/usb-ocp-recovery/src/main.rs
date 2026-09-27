@@ -19,7 +19,7 @@ use caliptra_mcu_ocp::protocol::RecoveryCommand;
 use caliptra_mcu_ocp::usb::driver::{RecoveryRequest, UsbDeviceDriver, UsbDriverError};
 use caliptra_mcu_registers_generated::usbdev;
 use caliptra_mcu_romtime::StaticRef;
-use caliptra_mcu_usb_emulator::ExamplarUsbDriver;
+use caliptra_mcu_usb_common::ExamplarUsbDriver;
 use zerocopy::IntoBytes;
 
 extern crate caliptra_mcu_rom_common;

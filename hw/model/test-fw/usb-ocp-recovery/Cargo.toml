@@ -18,7 +18,7 @@ test = false
 [dependencies]
 caliptra-mcu-rom-common.workspace = true
 caliptra-mcu-test-harness.workspace = true
-caliptra-mcu-usb-emulator.workspace = true
+caliptra-mcu-usb-common.workspace = true
 caliptra-mcu-ocp.workspace = true
 caliptra-mcu-registers-generated.workspace = true
 caliptra-mcu-romtime.workspace = true

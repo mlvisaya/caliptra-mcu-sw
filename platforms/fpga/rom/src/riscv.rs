@@ -187,6 +187,43 @@ pub extern "C" fn rom_entry() -> ! {
 
     caliptra_mcu_romtime::println!("[mcu-rom] Starting FPGA MCU ROM");
 
+    #[cfg(feature = "test-lpcip-usb-ocp-recovery")]
+    {
+        use caliptra_mcu_registers_generated::{usb_combo, usb_dev0_mem};
+        use caliptra_mcu_romtime::{Mci, McuResetReason, StaticRef};
+        use caliptra_mcu_usb_common::LpcipUsbDriver;
+
+        let mci_regs = unsafe {
+            StaticRef::new(
+                MCU_MEMORY_MAP.mci_offset
+                    as *const caliptra_mcu_registers_generated::mci::regs::Mci,
+            )
+        };
+        if Mci::new(mci_regs).reset_reason_enum() == McuResetReason::ColdBoot {
+            let usb_regs = unsafe {
+                StaticRef::new(
+                    caliptra_mcu_config_fpga::FPGA_USB_COMBO_ADDR
+                        as *const usb_combo::regs::UsbCombo,
+                )
+            };
+            let usb_memory = unsafe {
+                StaticRef::new(
+                    caliptra_mcu_config_fpga::FPGA_USB_DEV0_MEM_ADDR
+                        as *const usb_dev0_mem::regs::UsbDev0Mem,
+                )
+            };
+            let mut usb_driver = LpcipUsbDriver::new(usb_regs, usb_memory);
+            usb_driver.dump_registers();
+            let result = usb_driver.init_and_enumerate();
+            usb_driver.dump_registers();
+            if result.is_err() {
+                caliptra_mcu_rom_common::fatal_error(
+                    caliptra_mcu_error::McuError::ROM_COLD_BOOT_RECOVERY_NOT_CONFIGURED_ERROR,
+                );
+            }
+        }
+    }
+
     // HTG940_DEV_VENDOR_HASH_INIT
     // Development provisioning for the fixed preloaded firmware image.
     // Address is FPGA OTP backing RAM, not the OTP controller DAI.

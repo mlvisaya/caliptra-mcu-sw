@@ -238,7 +238,7 @@ The work is complete when:
 - [USB Recovery Emulation Design](./usb_recovery_emulation.md)
 - Caliptra SS USB2 Programmer's Guide: `hw/caliptra-ss/third_party/usb2/docs/USB2_Programmers_Guide.md`
 - Caliptra SS OCP Recovery microarchitecture: `hw/caliptra-ss/docs/usb2_recovery_spec/README.md`
-- Current ROM LPCIP driver: `platforms/emulator/rom/usb/src/lpcip.rs`
+- Current ROM LPCIP driver: `platforms/common/usb/src/lpcip.rs`
 - Current emulator USB compound peripheral: `emulator/periph/src/usb.rs`
 - USB/IP adapter: `tests/integration/src/usb/hwmodel.rs`
 - NXP USB3320 reference initialization: `janus_fpga_sw/janus_fpga_sw/middleware/usb/phy/USB3320_phy.c`

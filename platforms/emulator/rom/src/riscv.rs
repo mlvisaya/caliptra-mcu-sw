@@ -365,7 +365,7 @@ pub extern "C" fn rom_entry() -> ! {
     {
         use caliptra_mcu_registers_generated::{usb_combo, usb_dev0_mem};
         use caliptra_mcu_romtime::{Mci, McuResetReason};
-        use caliptra_mcu_usb_emulator::LpcipUsbDriver;
+        use caliptra_mcu_usb_common::LpcipUsbDriver;
 
         let mci_regs = unsafe {
             caliptra_mcu_romtime::StaticRef::new(
@@ -385,6 +385,7 @@ pub extern "C" fn rom_entry() -> ! {
                 )
             };
             let mut usb_driver = LpcipUsbDriver::new(usb_regs, usb_memory);
+            usb_driver.dump_registers();
             if usb_driver.init_and_enumerate().is_err() {
                 fatal_error(
                     caliptra_mcu_error::McuError::ROM_COLD_BOOT_RECOVERY_NOT_CONFIGURED_ERROR,
@@ -525,7 +526,7 @@ pub extern "C" fn rom_entry() -> ! {
             use caliptra_mcu_ocp::protocol::indirect_status::CmsRegionType;
             use caliptra_mcu_ocp::vendor::NoopVendorHandler;
             use caliptra_mcu_registers_generated::usbdev;
-            use caliptra_mcu_usb_emulator::ExamplarUsbDriver;
+            use caliptra_mcu_usb_common::ExamplarUsbDriver;
 
             // Commented to save codes space. Re-enable once budget allows.
             // caliptra_mcu_romtime::println!("[mcu-rom] USB OCP Recovery boot path");

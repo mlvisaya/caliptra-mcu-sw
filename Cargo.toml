@@ -51,7 +51,7 @@ members = [
     "platforms/emulator/config",
     "platforms/emulator/mcu-image-header",
     "platforms/emulator/rom",
-    "platforms/emulator/rom/usb",
+    "platforms/common/usb",
     "platforms/emulator/runtime",
     "platforms/emulator/runtime/kernel/capsules",
     "platforms/emulator/runtime/kernel/drivers/dma",
@@ -305,7 +305,7 @@ caliptra-mcu-otp-fuse = { path = "common/otp-fuse" }
 caliptra-mcu-otp-lifecycle = { path = "common/otp-lifecycle" }
 caliptra-mcu-platforms-common = { path = "platforms/common" }
 caliptra-mcu-rom-common = { path = "rom" }
-caliptra-mcu-usb-emulator = { path = "platforms/emulator/rom/usb" }
+caliptra-mcu-usb-common = { path = "platforms/common/usb" }
 caliptra-mcu-test-harness = {path = "platforms/test_harness"}
 caliptra-mcu-lwip-rs = { path = "network/net/lwip-rs" }
 caliptra-mcu-ocp = { path = "common/ocp" }

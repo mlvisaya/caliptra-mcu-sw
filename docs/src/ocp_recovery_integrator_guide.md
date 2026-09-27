@@ -35,7 +35,7 @@ flowchart LR
 
 The library owns the middle box (`RecoveryStateMachine`); everything else is supplied by the integrator.
 `ExamplarUsbDriver` is the reference `UsbDeviceDriver` implementation, at
-[`platforms/emulator/rom/usb/src/lib.rs`](https://github.com/chipsalliance/caliptra-mcu-sw/tree/main-2.1/platforms/emulator/rom/usb/src/lib.rs).
+[`platforms/common/usb/src/lib.rs`](https://github.com/chipsalliance/caliptra-mcu-sw/tree/main-2.1/platforms/common/usb/src/lib.rs).
 
 ## What you implement
 

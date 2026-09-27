@@ -73,17 +73,127 @@ impl LpcipUsbDriver {
         self
     }
 
+    /// Print the Device 0 controller registers and readable USB3320 registers.
+    pub fn dump_registers(&self) {
+        caliptra_mcu_romtime::println!("[usb] LPCIP Device 0 registers:");
+        caliptra_mcu_romtime::println!(
+            "[usb]   DEVCMDSTAT   = 0x{:08x}",
+            self.regs.dev0_csr_devcmdstat.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   INFO         = 0x{:08x}",
+            self.regs.dev0_csr_info.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   EPLISTSTART  = 0x{:08x}",
+            self.regs.dev0_csr_epliststart.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   DATABUFSTART = 0x{:08x}",
+            self.regs.dev0_csr_databufstart.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   LPM          = 0x{:08x}",
+            self.regs.dev0_csr_lpm.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   EPSKIP       = 0x{:08x}",
+            self.regs.dev0_csr_epskip.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   EPINUSE      = 0x{:08x}",
+            self.regs.dev0_csr_epinuse.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   EPBUFCFG     = 0x{:08x}",
+            self.regs.dev0_csr_epbufcfg.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   INTSTAT      = 0x{:08x}",
+            self.regs.dev0_csr_intstat.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   INTEN        = 0x{:08x}",
+            self.regs.dev0_csr_inten.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   INTSETSTAT   = 0x{:08x}",
+            self.regs.dev0_csr_intsetstat.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   INTROUTE     = 0x{:08x}",
+            self.regs.dev0_csr_introute.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   CONFIG       = 0x{:08x}",
+            self.regs.dev0_csr_config.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   EPTOGGLE     = 0x{:08x}",
+            self.regs.dev0_csr_eptoggle.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   CLKCTRL      = 0x{:08x}",
+            self.regs.dev0_csr_clkctrl.get()
+        );
+        caliptra_mcu_romtime::println!(
+            "[usb]   ULPIDEBUG    = 0x{:08x}",
+            self.regs.dev0_csr_ulpidebug.get()
+        );
+
+        caliptra_mcu_romtime::println!("[usb] USB3320 registers:");
+        for (name, address) in [
+            ("VENDOR_ID_LOW  ", 0x00),
+            ("VENDOR_ID_HIGH ", 0x01),
+            ("PRODUCT_ID_LOW ", 0x02),
+            ("PRODUCT_ID_HIGH", 0x03),
+            ("FUNCTION_CTRL  ", 0x04),
+            ("INTERFACE_CTRL ", 0x07),
+            ("OTG_CTRL       ", 0x0a),
+            ("USB_INT_EN_RISE", 0x0d),
+            ("USB_INT_EN_FALL", 0x10),
+            ("USB_INT_STATUS ", 0x13),
+            ("USB_INT_LATCH  ", 0x14),
+            ("DEBUG          ", 0x15),
+            ("SCRATCH        ", 0x16),
+        ] {
+            match self.ulpi_read(address) {
+                Ok(value) => caliptra_mcu_romtime::println!(
+                    "[usb]   {} [0x{:02x}] = 0x{:02x}",
+                    name,
+                    address,
+                    value
+                ),
+                Err(error) => {
+                    caliptra_mcu_romtime::println!(
+                        "[usb]   ULPI read failed at 0x{:02x}: {:?}",
+                        address,
+                        error
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
     /// Initialize Device 0 and service standard EP0 requests until configured.
     ///
     /// The platform must enable and release reset for the external USB PHY and
     /// controller clock before calling this method.
     pub fn init_and_enumerate(&mut self) -> Result<(), LpcipUsbError> {
+        caliptra_mcu_romtime::println!("[usb] Disconnecting and initializing Device 0");
         self.disconnect_and_initialize();
+        caliptra_mcu_romtime::println!("[usb] Initializing USB3320 PHY");
         self.initialize_phy()?;
+        caliptra_mcu_romtime::println!("[usb] Waiting for VBUS");
         self.wait_for_vbus()?;
+        caliptra_mcu_romtime::println!("[usb] Enabling Device 0 interrupts");
         self.enable_interrupts();
+        caliptra_mcu_romtime::println!("[usb] Connecting Device 0");
         self.connect();
+        caliptra_mcu_romtime::println!("[usb] Waiting for USB bus reset");
         self.wait_for_bus_reset()?;
+        caliptra_mcu_romtime::println!("[usb] Servicing EP0 enumeration requests");
         let mut configured = false;
 
         loop {
