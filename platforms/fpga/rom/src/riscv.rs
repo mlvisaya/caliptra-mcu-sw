@@ -12,7 +12,9 @@ Abstract:
 
 --*/
 
-use crate::flash::flash_drv::{FpgaFlashCtrl, PRIMARY_FLASH_CTRL_BASE, SECONDARY_FLASH_CTRL_BASE};
+use crate::flash::flash_drv::{
+    FpgaFlashCtrl, HTG940_SECONDARY_BASE, HTG940_SECONDARY_CAPACITY, PRIMARY_FLASH_CTRL_BASE,
+};
 use crate::io::{print_to_console, EXITER, FATAL_ERROR_HANDLER, FPGA_WRITER};
 
 #[cfg(target_arch = "riscv32")]
@@ -173,6 +175,7 @@ pub extern "C" fn rom_entry() -> ! {
         #[allow(static_mut_refs)]
         caliptra_mcu_romtime::set_printer(&mut FPGA_WRITER);
     }
+    caliptra_mcu_romtime::println!("[mcu-rom] Built {}", env!("MCU_ROM_BUILD_TIMESTAMP"));
     unsafe {
         #[allow(static_mut_refs)]
         caliptra_mcu_rom_common::set_fatal_error_handler(&mut FATAL_ERROR_HANDLER);
@@ -183,6 +186,40 @@ pub extern "C" fn rom_entry() -> ! {
     }
 
     caliptra_mcu_romtime::println!("[mcu-rom] Starting FPGA MCU ROM");
+
+    // HTG940_DEV_VENDOR_HASH_INIT
+    // Development provisioning for the fixed preloaded firmware image.
+    // Address is FPGA OTP backing RAM, not the OTP controller DAI.
+    {
+        let expected: [u32; 12] = [
+            0xb17ca877, 0x666657cc, 0xd100e692, 0x6c7206b6, 0x0c995cb6, 0x8992c6c9, 0xbaefce72,
+            0x8af05441, 0xdee1ff41, 0x5adfc187, 0xe1e4edb4, 0xd3b2d909,
+        ];
+        let base = 0xB008_0420usize as *mut u32;
+        caliptra_mcu_romtime::println!("[otp-debug] Before vendor hash backing-RAM read");
+        let mut current = [0u32; 12];
+        for i in 0..12 {
+            current[i] = unsafe { core::ptr::read_volatile(base.add(i)) };
+        }
+        if current.iter().all(|&word| word == 0) {
+            caliptra_mcu_romtime::println!("[otp-debug] Slot 0 blank; initializing vendor hash");
+            for i in 0..12 {
+                unsafe {
+                    core::ptr::write_volatile(base.add(i), expected[i]);
+                }
+            }
+        } else {
+            assert!(
+                current == expected,
+                "OTP vendor hash differs; refusing overwrite"
+            );
+        }
+        for i in 0..12 {
+            let actual = unsafe { core::ptr::read_volatile(base.add(i)) };
+            assert_eq!(actual, expected[i], "OTP backing-RAM readback failed");
+        }
+        caliptra_mcu_romtime::println!("[otp-debug] Vendor hash backing-RAM readback passed");
+    }
 
     // Initialize the primary flash controller
     let primary_flash_ctrl = FpgaFlashCtrl::initialize_flash_ctrl(PRIMARY_FLASH_CTRL_BASE);
@@ -261,7 +298,8 @@ pub extern "C" fn rom_entry() -> ! {
     let hooks = LoggingRomHooks;
 
     // DOT flash is backed by the secondary flash controller.
-    let secondary_flash_ctrl = FpgaFlashCtrl::initialize_flash_ctrl(SECONDARY_FLASH_CTRL_BASE);
+    let secondary_flash_ctrl =
+        FpgaFlashCtrl::initialize_flash_region(HTG940_SECONDARY_BASE, HTG940_SECONDARY_CAPACITY);
     let dot_flash: &dyn caliptra_mcu_rom_common::hil::FlashStorage = &secondary_flash_ctrl;
 
     use caliptra_mcu_rom_common::recovery::flash::FlashImageProvider;
@@ -418,6 +456,7 @@ pub extern "C" fn rom_entry() -> ! {
         otp_enable_integrity_check: !cfg!(feature = "test-i3c-services"),
         otp_enable_consistency_check: !cfg!(feature = "test-i3c-services"),
         image_provider_manager: Some(manager),
+        request_recovery_boot: true,
         dot_flash: Some(dot_flash),
         fw_manifest_dot_enabled: cfg!(feature = "test-fw-manifest-dot"),
         owner_pk_hash_policy: read_owner_pk_hash_policy(),

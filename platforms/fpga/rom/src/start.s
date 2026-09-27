@@ -65,6 +65,17 @@ copy_data:
     j copy_data
 end_copy_data:
 
+    # Initialize normal-stack data and ECC before Rust uses partial stores.
+    # STACK_TOP is the exclusive upper bound.
+    la t0, STACK_ORIGIN
+    la t1, STACK_TOP
+.Lhtg940_clear_stack:
+    bgeu t0, t1, .Lhtg940_clear_stack_done
+    sw zero, 0(t0)
+    addi t0, t0, 4
+    j .Lhtg940_clear_stack
+.Lhtg940_clear_stack_done:
+
     # call main entry point
     call main
 

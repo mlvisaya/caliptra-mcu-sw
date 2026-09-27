@@ -109,32 +109,35 @@ ROM owns software-visible USB initialization:
 
 The ROM implementation should use the generated Caliptra SS register fields. It must not copy the old Janus `0x4940_0000` controller address, `0x2400_2000` DMA address, host `PORTMODE` dependency, or FPGA-specific `PLLON` aliases.
 
-### Janus hardware memory map
+### Platform USB memory maps
 
-The emulator, the current Caliptra FPGA platform, and the NXP Janus FPGA do not
-share one MCU address map. Before running this flow on Janus hardware, the ROM
-and test firmware must use a Janus-specific platform mapping rather than the
-generated emulator addresses.
+The emulator, the Caliptra HTG940 FPGA platform, and the NXP Janus FPGA do not
+share one MCU address map. ROM and test firmware must select the appropriate
+platform mapping rather than using the generated emulator addresses directly.
 
-| Region | NXP Janus FPGA | Current emulator | Current Caliptra FPGA platform |
+| Region | NXP Janus FPGA | Current emulator | Caliptra HTG940 FPGA |
 | --- | ---: | ---: | ---: |
-| MCU ROM | `0x8000_0000`, 256 KiB | `0x8000_0000`, 64 KiB | `0xb004_0000`, 128 KiB |
+| MCU ROM | `0x8000_0000`, 256 KiB | `0x8000_0000`, 128 KiB | `0xb004_0000`, 128 KiB |
 | MCU SRAM | `0x2200_0000`-`0x223f_ffff`, four 1 MiB banks | `0x4000_0000`, 1 MiB | `0xa8c0_0000`, 512 KiB |
-| USB Device 0 registers | `0x4940_0000`, 4 KiB | `0x2000_0000` compound aperture | Not currently declared by the FPGA platform configuration |
-| USB host registers | `0x4940_1000`, 4 KiB | Not mounted in the current SoC map | Not currently declared by the FPGA platform configuration |
-| USB OCP Recovery registers | `0x4940_2000`, 4 KiB | `0x2000_0800`, inside the compound aperture | Not currently declared by the FPGA platform configuration |
-| USB packet/DMA SRAM | `0x2400_2000`, 8 KiB | `0x3000_0000`, 64 KiB | Not currently declared by the FPGA platform configuration |
+| USB Device 0 / combo registers | `0x4940_0000`, 4 KiB | `0x2000_0000` compound aperture | `0xa420_0000` |
+| USB OCP Recovery registers | `0x4940_2000`, 4 KiB | `0x2000_0800`, inside the compound aperture | `0xa420_0800` |
+| USB Device 0 packet SRAM | `0x2400_2000`, 8 KiB | `0x3000_0000`, 64 KiB | `0xa430_0000` |
+| USB Device 1 registers | Not listed | `0x2000_2000` | `0xa440_0000` |
+| USB Device 1 packet SRAM | Not listed | `0x3001_0000`, 64 KiB | `0xa450_0000` |
+| USB host registers | `0x4940_1000`, 4 KiB | Not mounted in the current SoC map | Not listed |
 
 Caliptra core ROM is not the `MCU ROM` row above. It remains in the Caliptra
 core's private address space at `0x0000_0000` with the size defined by the
 selected Caliptra ROM build (currently 96 KiB).
 
-Janus support should select these bases through platform-specific constants or
-injected register-block references. It must not change the generated Caliptra
-SS map globally, because emulator and Caliptra SS RTL tests depend on that map.
-The hardware preflight must also verify the synthesized Janus address map before
-loading firmware; matching register layouts do not imply matching absolute
-addresses or aperture sizes.
+Platform code should select these bases through platform-specific constants or
+injected register-block references. The HTG940 constants live in
+`platforms/fpga/config`; they must not change the generated Caliptra SS map
+globally, because emulator and Caliptra SS RTL tests depend on that map. Hardware
+preflight must still verify the synthesized address map before loading firmware;
+matching register layouts do not imply matching absolute addresses or aperture
+sizes. The published HTG940 map does not specify USB aperture sizes, so firmware
+must not infer them from the spacing between base addresses.
 
 ### OCP recovery hardware model
 
@@ -214,7 +217,7 @@ pin-cycle USB and ULPI timing remain outside the emulator model by design.
 - Run the Linux `libusb` over USB/IP streaming-boot test.
 - Add negative tests for PHY identity failure, ULPI timeout, Scratch failure, disabled OCP path, malformed OCP SETUP, reset during a claim, and non-OCP class requests.
 - Compare ROM register traces against the NXP bring-up sequence and current Caliptra SS programmer's guide.
-- Add/select the Janus platform memory map and confirm the synthesized USB register and packet-RAM apertures before loading ROM or test firmware.
+- Select the HTG940 platform USB bases and confirm the synthesized register and packet-RAM aperture sizes before loading ROM or test firmware.
 - Run the same recovery-agent image sequence against FPGA hardware through the USB3320 daughtercard.
 
 ## Acceptance criteria

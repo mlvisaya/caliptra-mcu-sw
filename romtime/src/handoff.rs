@@ -183,6 +183,13 @@ impl HandoffData {
         // to the reserved memory section. Should that invariant change there is risk of data
         // corruption / write contention.
         unsafe {
+            // Initialize handoff words before partial stores.
+            // Full-word writes establish DCCM data and ECC.
+            let handoff_words = (&raw mut HANDOFF).cast::<u32>();
+            for i in 0..(Self::SIZE / core::mem::size_of::<u32>()) {
+                core::ptr::write_volatile(handoff_words.add(i), 0);
+            }
+
             HANDOFF = Self {
                 rom: RomHandoffTable {
                     #[cfg(feature = "ocp-lock")]

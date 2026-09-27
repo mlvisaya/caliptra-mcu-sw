@@ -1,38 +1,30 @@
 // Licensed under the Apache-2.0 license
 
-// FPGA flash controller driver for MCU ROM.
-// This is a simplified version of the emulator's flash driver, but contains
-// only the parts that the FPGA model implements.
+// HTG940_STANDALONE_FIRMWARE_BRAM
+// The original VCK190 FPGA flow delegated flash operations to a Linux-side
+// realtime model.  HTG-940 has no PS, so the MCU ROM reads and writes a 2 MiB
+// AXI BRAM directly.  Slot A is initialized from flash_image.bin by Vivado.
 
-use caliptra_mcu_registers_generated::primary_flash_ctrl::{
-    bits::{FlControl, OpStatus},
-    regs::PrimaryFlashCtrl,
-};
+use caliptra_mcu_registers_generated::primary_flash_ctrl::regs::PrimaryFlashCtrl;
 use caliptra_mcu_rom_common::flash::hil::{FlashDrvError, FlashStorage};
 use caliptra_mcu_romtime::StaticRef;
 use core::ops::{Index, IndexMut};
-use tock_registers::interfaces::{ReadWriteable, Readable, Writeable};
 
-/// FPGA wrapper primary flash controller address
 pub const FPGA_PRIMARY_FLASH_CTRL_ADDR: u32 = 0xA401_2000;
-
-/// FPGA wrapper secondary flash controller address
 pub const FPGA_SECONDARY_FLASH_CTRL_ADDR: u32 = 0xA401_3000;
-
-/// Fixed SRAM buffer for flash page operations
 pub const FLASH_PAGE_BUFFER_SRAM_OFFSET: u32 = 0xA401_2100;
 
-#[allow(dead_code)]
 pub const PRIMARY_FLASH_CTRL_BASE: StaticRef<PrimaryFlashCtrl> =
     unsafe { StaticRef::new(FPGA_PRIMARY_FLASH_CTRL_ADDR as *const PrimaryFlashCtrl) };
-
-#[allow(dead_code)]
 pub const SECONDARY_FLASH_CTRL_BASE: StaticRef<PrimaryFlashCtrl> =
     unsafe { StaticRef::new(FPGA_SECONDARY_FLASH_CTRL_ADDR as *const PrimaryFlashCtrl) };
 
-// FPGA uses a fixed page size of 256 bytes
+pub const HTG940_FLASH_BASE: usize = 0xB020_0000;
+pub const HTG940_FLASH_CAPACITY: usize = 2 * 1024 * 1024;
+pub const HTG940_PRIMARY_CAPACITY: usize = 1024 * 1024;
+pub const HTG940_SECONDARY_BASE: usize = HTG940_FLASH_BASE + HTG940_PRIMARY_CAPACITY;
+pub const HTG940_SECONDARY_CAPACITY: usize = 12 * 64 * 1024;
 const PAGE_SIZE: usize = 256;
-const FLASH_MAX_PAGES: usize = 16 * 1024 * 1024 / PAGE_SIZE;
 
 #[derive(Debug, PartialEq)]
 #[allow(clippy::enum_variant_names)]
@@ -40,19 +32,6 @@ pub enum FlashOperation {
     ReadPage = 1,
     WritePage = 2,
     ErasePage = 3,
-}
-
-impl TryInto<FlashOperation> for u32 {
-    type Error = ();
-
-    fn try_into(self) -> Result<FlashOperation, Self::Error> {
-        match self {
-            1 => Ok(FlashOperation::ReadPage),
-            2 => Ok(FlashOperation::WritePage),
-            3 => Ok(FlashOperation::ErasePage),
-            _ => Err(()),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -66,7 +45,6 @@ impl Default for FpgaFlashPage {
 
 impl Index<usize> for FpgaFlashPage {
     type Output = u8;
-
     fn index(&self, idx: usize) -> &u8 {
         &self.0[idx]
     }
@@ -85,225 +63,89 @@ impl AsMut<[u8]> for FpgaFlashPage {
 }
 
 pub struct FpgaFlashCtrl {
-    registers: StaticRef<PrimaryFlashCtrl>,
+    base: usize,
+    capacity: usize,
 }
 
 impl FlashStorage for FpgaFlashCtrl {
-    // Read arbitrary length of data from flash, starting at `offset`, into `buf`.
-    // Returns Ok(()) on success, or Err(FlashDrvError) on failure.
     fn read(&self, buf: &mut [u8], offset: usize) -> Result<(), FlashDrvError> {
-        let mut remaining = buf.len();
-        let mut buf_offset = 0;
-        let mut flash_offset = offset;
-        let mut page_buf = FpgaFlashPage::default();
-
-        while remaining > 0 {
-            let page_number = flash_offset / PAGE_SIZE;
-            let page_offset = flash_offset % PAGE_SIZE;
-            let to_read = core::cmp::min(PAGE_SIZE - page_offset, remaining);
-
-            // Read the page into page_buf
-            self.read_page(page_number, &mut page_buf)?;
-
-            let dest = buf
-                .get_mut(buf_offset..buf_offset + to_read)
-                .ok_or(FlashDrvError::INVAL)?;
-            let src = page_buf
-                .0
-                .get(page_offset..page_offset + to_read)
-                .ok_or(FlashDrvError::INVAL)?;
-            for (d, s) in dest.iter_mut().zip(src.iter()) {
-                *d = *s;
-            }
-
-            remaining -= to_read;
-            buf_offset += to_read;
-            flash_offset += to_read;
+        let end = offset.checked_add(buf.len()).ok_or(FlashDrvError::INVAL)?;
+        if end > self.capacity {
+            return Err(FlashDrvError::INVAL);
         }
-
+        let src = (self.base + offset) as *const u8;
+        for (index, byte) in buf.iter_mut().enumerate() {
+            *byte = unsafe { core::ptr::read_volatile(src.add(index)) };
+        }
         Ok(())
     }
 
-    // Write arbitrary length of data to flash, starting at `offset`, from `buf`.
-    // Returns Ok(()) on success, or Err(FlashDrvError) on failure.
     fn write(&self, buf: &[u8], offset: usize) -> Result<(), FlashDrvError> {
-        let mut remaining = buf.len();
-        let mut buf_offset = 0;
-        let mut flash_offset = offset;
-
-        while remaining > 0 {
-            let page_number = flash_offset / PAGE_SIZE;
-            let page_offset = flash_offset % PAGE_SIZE;
-            let to_write = core::cmp::min(PAGE_SIZE - page_offset, remaining);
-
-            // Read the page first if not writing the whole page
-            let mut page_buf = if to_write != PAGE_SIZE {
-                let mut tmp = FpgaFlashPage::default();
-                self.read_page(page_number, &mut tmp)?;
-                tmp
-            } else {
-                FpgaFlashPage::default()
-            };
-
-            let dest = page_buf
-                .0
-                .get_mut(page_offset..page_offset + to_write)
-                .ok_or(FlashDrvError::INVAL)?;
-            let src = buf
-                .get(buf_offset..buf_offset + to_write)
-                .ok_or(FlashDrvError::INVAL)?;
-            for (d, s) in dest.iter_mut().zip(src.iter()) {
-                *d = *s;
-            }
-
-            self.write_page(page_number, &mut page_buf)?;
-
-            remaining -= to_write;
-            buf_offset += to_write;
-            flash_offset += to_write;
+        let end = offset.checked_add(buf.len()).ok_or(FlashDrvError::INVAL)?;
+        if end > self.capacity {
+            return Err(FlashDrvError::INVAL);
         }
-
+        let dst = (self.base + offset) as *mut u8;
+        for (index, byte) in buf.iter().copied().enumerate() {
+            unsafe { core::ptr::write_volatile(dst.add(index), byte) };
+        }
         Ok(())
     }
 
-    // Erase arbitrary length of data in flash, starting at `offset`, for `len` bytes.
-    // Returns Ok(()) on success, or Err(FlashDrvError) on failure.
     fn erase(&self, offset: usize, len: usize) -> Result<(), FlashDrvError> {
-        if len == 0 {
-            return Ok(());
+        let end = offset.checked_add(len).ok_or(FlashDrvError::INVAL)?;
+        if end > self.capacity {
+            return Err(FlashDrvError::INVAL);
         }
-        let start_page = offset / PAGE_SIZE;
-        let end_page = (offset + len - 1) / PAGE_SIZE;
-
-        for page in start_page..=end_page {
-            self.erase_page(page)?;
+        let dst = (self.base + offset) as *mut u8;
+        for index in 0..len {
+            unsafe { core::ptr::write_volatile(dst.add(index), 0xFF) };
         }
         Ok(())
     }
 
     fn capacity(&self) -> usize {
-        FLASH_MAX_PAGES * PAGE_SIZE
+        self.capacity
     }
 }
 
-#[allow(dead_code)]
 impl FpgaFlashCtrl {
-    pub fn initialize_flash_ctrl(base: StaticRef<PrimaryFlashCtrl>) -> FpgaFlashCtrl {
-        let ctrl = FpgaFlashCtrl { registers: base };
-        ctrl.init();
-        ctrl
+    pub fn initialize_flash_ctrl(_base: StaticRef<PrimaryFlashCtrl>) -> FpgaFlashCtrl {
+        FpgaFlashCtrl {
+            base: HTG940_FLASH_BASE,
+            capacity: HTG940_PRIMARY_CAPACITY,
+        }
     }
 
-    /// Returns the total capacity of the flash in bytes.
+    pub fn initialize_flash_region(base: usize, capacity: usize) -> FpgaFlashCtrl {
+        FpgaFlashCtrl { base, capacity }
+    }
+
     pub fn capacity(&self) -> usize {
-        FLASH_MAX_PAGES * PAGE_SIZE
+        self.capacity
     }
 
-    fn init(&self) {
-        self.registers
-            .op_status
-            .modify(OpStatus::Err::CLEAR + OpStatus::Done::CLEAR);
-    }
-
+    #[allow(dead_code)]
     fn read_page(&self, page_number: usize, buf: &mut FpgaFlashPage) -> Result<(), FlashDrvError> {
-        // Check if the page number is valid
-        if page_number >= FLASH_MAX_PAGES {
+        if page_number >= self.capacity / PAGE_SIZE {
             return Err(FlashDrvError::INVAL);
         }
-
-        // Clear the control register
-        self.registers
-            .fl_control
-            .modify(FlControl::Op::CLEAR + FlControl::Start::CLEAR);
-
-        // Use the fixed SRAM buffer address for FPGA
-        let page_buf_addr = FLASH_PAGE_BUFFER_SRAM_OFFSET;
-
-        // Program page_num, page_addr registers (page_size is fixed on FPGA)
-        self.registers.page_num.set(page_number as u32);
-
-        // Start the read operation
-        self.registers
-            .fl_control
-            .modify(FlControl::Op.val(FlashOperation::ReadPage as u32) + FlControl::Start::SET);
-
-        // Polling for the operation to complete. This is a blocking call.
-        self.poll_for_completion()?;
-
-        // Copy data from SRAM buffer to the provided buffer
-        let sram_ptr = page_buf_addr as *const u8;
-        unsafe {
-            for i in 0..PAGE_SIZE {
-                buf.0[i] = core::ptr::read_volatile(sram_ptr.add(i));
-            }
-        }
-
-        Ok(())
+        self.read(&mut buf.0, page_number * PAGE_SIZE)
     }
 
-    fn write_page(&self, page_number: usize, buf: &mut FpgaFlashPage) -> Result<(), FlashDrvError> {
-        // Check if the page number is valid
-        if page_number >= FLASH_MAX_PAGES {
+    #[allow(dead_code)]
+    fn write_page(&self, page_number: usize, buf: &FpgaFlashPage) -> Result<(), FlashDrvError> {
+        if page_number >= self.capacity / PAGE_SIZE {
             return Err(FlashDrvError::INVAL);
         }
-
-        // Clear the control register
-        self.registers
-            .fl_control
-            .modify(FlControl::Op::CLEAR + FlControl::Start::CLEAR);
-
-        // Use the fixed SRAM buffer address for FPGA
-        let page_buf_addr = FLASH_PAGE_BUFFER_SRAM_OFFSET;
-
-        // Copy data from the provided buffer to SRAM buffer
-        let sram_ptr = page_buf_addr as *mut u8;
-        unsafe {
-            for i in 0..PAGE_SIZE {
-                core::ptr::write_volatile(sram_ptr.add(i), buf.0[i]);
-            }
-        }
-
-        // Program page_num, page_addr registers (page_size is fixed on FPGA)
-        self.registers.page_num.set(page_number as u32);
-
-        // Start the write operation
-        self.registers
-            .fl_control
-            .modify(FlControl::Op.val(FlashOperation::WritePage as u32) + FlControl::Start::SET);
-
-        // Polling for the operation to complete. This is a blocking call.
-        self.poll_for_completion()
+        self.write(&buf.0, page_number * PAGE_SIZE)
     }
 
+    #[allow(dead_code)]
     fn erase_page(&self, page_number: usize) -> Result<(), FlashDrvError> {
-        if page_number >= FLASH_MAX_PAGES {
+        if page_number >= self.capacity / PAGE_SIZE {
             return Err(FlashDrvError::INVAL);
         }
-
-        // Clear the control register
-        self.registers
-            .fl_control
-            .modify(FlControl::Op::CLEAR + FlControl::Start::CLEAR);
-
-        // Program page_num register
-        self.registers.page_num.set(page_number as u32);
-
-        // Start the erase operation
-        self.registers
-            .fl_control
-            .modify(FlControl::Op.val(FlashOperation::ErasePage as u32) + FlControl::Start::SET);
-
-        // Polling for the operation to complete. This is a blocking call.
-        self.poll_for_completion()
-    }
-
-    fn poll_for_completion(&self) -> Result<(), FlashDrvError> {
-        while self.registers.op_status.read(OpStatus::Done) == 0 {}
-        self.registers.op_status.modify(OpStatus::Done::CLEAR);
-        if self.registers.op_status.read(OpStatus::Err) != 0 {
-            Err(FlashDrvError::FAIL)
-        } else {
-            Ok(())
-        }
+        self.erase(page_number * PAGE_SIZE, PAGE_SIZE)
     }
 }

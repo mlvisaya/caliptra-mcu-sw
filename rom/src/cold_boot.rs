@@ -1116,6 +1116,22 @@ impl BootFlow for ColdBoot {
             straps.active_i3c
         );
 
+        // HTG940_BRAM_RECOVERY_SELECT_I3C
+        // Match Caliptra's recovery interface to the local BRAM loader.
+        if params.request_recovery_boot {
+            let caps = mci.registers.mci_reg_hw_capabilities.get();
+            mci.registers
+                .mci_reg_hw_capabilities
+                .set((caps & !0x3u32) | 0x1u32);
+
+            let selected = mci.registers.mci_reg_hw_capabilities.get();
+            caliptra_mcu_romtime::println!(
+                "[mcu-rom] Recovery interface selection: {} (1=I3C)",
+                selected & 0x3
+            );
+            assert_eq!(selected & 0x3, 1, "I3C recovery selection failed");
+        }
+
         caliptra_mcu_romtime::println!("[mcu-rom] Setting Caliptra boot go");
 
         crate::call_hook(params.hooks, |h| h.pre_caliptra_boot());
@@ -1292,6 +1308,20 @@ impl BootFlow for ColdBoot {
             trng_user: params.cptra_trng_axi_user,
             dma_user: params.cptra_dma_axi_user,
         });
+        // HTG940_RECOVERY_DMA_USER_ALIGNMENT
+        if params.request_recovery_boot {
+            let sram_user = mci.registers.mci_reg_mcu_sram_config_axi_user.get();
+            caliptra_mcu_romtime::println!(
+                "[mcu-rom] Recovery DMA user: configured={}, SRAM-authorized={}",
+                params.cptra_dma_axi_user,
+                sram_user
+            );
+            soc.set_ss_caliptra_dma_axi_user(sram_user);
+            caliptra_mcu_romtime::println!(
+                "[mcu-rom] Recovery DMA user programmed to {}",
+                sram_user
+            );
+        }
         mci.set_flow_checkpoint(McuRomBootStatus::AxiUsersConfigured.into());
 
         // Configure iTRNG

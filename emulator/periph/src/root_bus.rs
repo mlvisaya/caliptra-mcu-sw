@@ -20,7 +20,7 @@ use caliptra_emu_cpu::{Irq, Pic, PicMmioRegisters};
 use caliptra_emu_types::{RvAddr, RvData, RvSize};
 use caliptra_mcu_emulator_consts::{
     DOT_FLASH_SIZE, EXTERNAL_TEST_SRAM_SIZE, MCU_MAILBOX0_SRAM_SIZE, MCU_MAILBOX1_SRAM_SIZE,
-    RAM_SIZE, ROM_DEDICATED_RAM_ORG, ROM_DEDICATED_RAM_SIZE,
+    RAM_SIZE, ROM_DEDICATED_RAM_ORG, ROM_DEDICATED_RAM_SIZE, ROM_SIZE,
 };
 use std::{
     cell::RefCell,
@@ -54,7 +54,7 @@ impl Default for McuRootBusOffsets {
     fn default() -> Self {
         Self {
             rom_offset: 0,
-            rom_size: 64 * 1024,
+            rom_size: ROM_SIZE,
             uart_offset: 0x1000_1000,
             uart_size: 0x100,
             ctrl_offset: 0x1000_2000,

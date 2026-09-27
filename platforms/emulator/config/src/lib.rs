@@ -7,7 +7,7 @@ use caliptra_mcu_config::{McuMemoryMap, McuStraps, MemoryRegionType};
 
 pub const EMULATOR_MEMORY_MAP: McuMemoryMap = McuMemoryMap {
     rom_offset: 0x8000_0000,
-    rom_size: 64 * 1024,
+    rom_size: 128 * 1024,
     rom_stack_size: 0x2f00,
     rom_estack_size: 0x100,
     rom_properties: MemoryRegionType::MEMORY,

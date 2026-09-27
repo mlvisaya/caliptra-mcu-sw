@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 caliptra-emu-cpu.workspace = true
+caliptra-mcu-config-emulator.workspace = true
 caliptra-mcu-network-config.workspace = true

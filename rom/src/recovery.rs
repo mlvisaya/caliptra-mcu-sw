@@ -366,25 +366,64 @@ fn load_image_to_recovery(
     let mut next_print_checkpoint = 0;
     let mut start_cycle = None;
 
+    let mut recovery_trace_seen = [false; 3];
+    let mut chunk_trace_offset: Option<usize> = None;
+
     while *state_machine.state() != States::Done {
         match *state_machine.state() {
             States::ReadProtCap => {
+                if !recovery_trace_seen[0] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] ReadProtCap: before register read"
+                    );
+                }
                 // Read the ProtCap2 register
                 let prot_cap = i3c_periph.sec_fw_recovery_if_prot_cap_2.get();
+                if !recovery_trace_seen[0] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] ReadProtCap: value={}",
+                        prot_cap
+                    );
+                    recovery_trace_seen[0] = true;
+                }
                 let _ = state_machine.process_event(Events::ProtCap(ProtCap2(prot_cap)));
             }
 
             States::ReadDeviceStatus => {
+                if !recovery_trace_seen[1] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] ReadDeviceStatus: before register read"
+                    );
+                }
                 // Read the Device Status register
                 let device_status = i3c_periph.sec_fw_recovery_if_device_status_0.get();
+                if !recovery_trace_seen[1] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] ReadDeviceStatus: value={}",
+                        device_status
+                    );
+                    recovery_trace_seen[1] = true;
+                }
                 let _ =
                     state_machine.process_event(Events::DeviceStatus(DeviceStatus0(device_status)));
             }
 
             States::WaitForRecoveryStatus => {
+                if !recovery_trace_seen[2] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] WaitForRecoveryStatus: before register read"
+                    );
+                }
                 // Read the Recovery Status register
                 let recovery_status =
                     RecoveryStatus(i3c_periph.sec_fw_recovery_if_recovery_status.get());
+                if !recovery_trace_seen[2] {
+                    caliptra_mcu_romtime::println!(
+                        "[recovery-debug] WaitForRecoveryStatus: value={}",
+                        recovery_status.0
+                    );
+                    recovery_trace_seen[2] = true;
+                }
                 let res = state_machine.process_event(Events::RecoveryStatus(recovery_status));
                 if res.is_ok() {
                     next_print_checkpoint = 0;
@@ -439,18 +478,44 @@ fn load_image_to_recovery(
                     // wait for fifo empty before transferring full 256 bytes
                     // this is necessary to work around some hardware quirks where
                     // being not full does not mean it is safe to write
+                    // HTG940_FIRST_CHUNKS_TRACE
+                    let trace_chunk = bytes_loaded < 512;
+                    if trace_chunk && chunk_trace_offset != Some(bytes_loaded) {
+                        caliptra_mcu_romtime::println!(
+                            "[chunk-debug] offset={} before FIFO status read",
+                            bytes_loaded
+                        );
+                        let status = i3c_periph.sec_fw_recovery_if_indirect_fifo_status_0.get();
+                        caliptra_mcu_romtime::println!("[chunk-debug] FIFO status={}", status);
+                        chunk_trace_offset = Some(bytes_loaded);
+                    }
+
                     if i3c_periph
                         .sec_fw_recovery_if_indirect_fifo_status_0
                         .is_set(IndirectFifoStatus0::Empty)
                     {
                         let mut buf = [0u32; 64];
                         let data = buf.as_mut_bytes();
+                        if trace_chunk {
+                            caliptra_mcu_romtime::println!(
+                                "[chunk-debug] FIFO empty; before BRAM read"
+                            );
+                        }
                         image_provider.next_bytes(data)?;
-
-                        // load a dword at a time to recovery interface
                         let dwords_loaded = data.len().div_ceil(4);
+                        if trace_chunk {
+                            caliptra_mcu_romtime::println!(
+                                "[chunk-debug] BRAM read returned; before FIFO writes"
+                            );
+                        }
                         for dword in buf.iter().take(dwords_loaded) {
                             i3c_periph.tti_tx_data_port.set(*dword);
+                        }
+                        if trace_chunk {
+                            caliptra_mcu_romtime::println!(
+                                "[chunk-debug] FIFO writes complete; offset={}",
+                                image_provider.bytes_loaded()
+                            );
                         }
                     }
                 }

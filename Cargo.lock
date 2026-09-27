@@ -1367,6 +1367,7 @@ name = "caliptra-mcu-emulator-consts"
 version = "0.1.0"
 dependencies = [
  "caliptra-emu-cpu",
+ "caliptra-mcu-config-emulator",
  "caliptra-mcu-network-config",
 ]
 
@@ -2247,6 +2248,7 @@ dependencies = [
  "caliptra-mcu-rom-common",
  "caliptra-mcu-romtime",
  "caliptra-mcu-usb-emulator",
+ "chrono",
  "riscv-csr",
  "rv32i",
  "tock-registers",
@@ -2264,6 +2266,7 @@ dependencies = [
  "caliptra-mcu-registers-generated",
  "caliptra-mcu-rom-common",
  "caliptra-mcu-romtime",
+ "chrono",
  "riscv-csr",
  "rv32i",
  "tock-registers",

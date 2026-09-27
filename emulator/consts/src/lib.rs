@@ -13,6 +13,7 @@ Abstract:
 --*/
 
 use caliptra_emu_cpu::{CpuArgs, CpuOrgArgs};
+use caliptra_mcu_config_emulator::EMULATOR_MEMORY_MAP;
 use caliptra_mcu_network_config::DEFAULT_NETWORK_MEMORY_MAP;
 
 pub const DEFAULT_CPU_ARGS: CpuArgs = CpuArgs {
@@ -29,8 +30,8 @@ pub const DEFAULT_CPU_ARGS: CpuArgs = CpuArgs {
 
 pub const RAM_ORG: u32 = 0x4000_0000;
 pub const RAM_SIZE: u32 = 1024 * 1024;
-pub const ROM_ORG: u32 = 0x8000_0000;
-pub const ROM_SIZE: u32 = 64 * 1024;
+pub const ROM_ORG: u32 = EMULATOR_MEMORY_MAP.rom_offset;
+pub const ROM_SIZE: u32 = EMULATOR_MEMORY_MAP.rom_size;
 pub const EXTERNAL_TEST_SRAM_SIZE: u32 = 1024 * 1024;
 pub const ROM_DEDICATED_RAM_ORG: u32 = 0x5000_0000;
 pub const ROM_DEDICATED_RAM_SIZE: u32 = 256 * 1024;

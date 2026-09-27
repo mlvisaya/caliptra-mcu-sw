@@ -216,6 +216,7 @@ pub extern "C" fn rom_entry() -> ! {
         #[allow(static_mut_refs)]
         caliptra_mcu_romtime::set_printer(&mut EMULATOR_WRITER);
     }
+    caliptra_mcu_romtime::println!("[mcu-rom] Built {}", env!("MCU_ROM_BUILD_TIMESTAMP"));
     unsafe {
         #[allow(static_mut_refs)]
         caliptra_mcu_rom_common::set_fatal_error_handler(&mut FATAL_ERROR_HANDLER);
