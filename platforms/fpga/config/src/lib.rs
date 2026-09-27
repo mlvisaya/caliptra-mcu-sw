@@ -5,6 +5,12 @@
 pub mod flash;
 use caliptra_mcu_config::{McuMemoryMap, McuStraps, MemoryRegionType};
 
+pub const FPGA_USB_COMBO_ADDR: u32 = 0xa420_0000;
+pub const FPGA_USB_OCP_RECOVERY_ADDR: u32 = FPGA_USB_COMBO_ADDR + 0x800;
+pub const FPGA_USB_DEV0_MEM_ADDR: u32 = 0xa430_0000;
+pub const FPGA_USB_DEV1_CSR_ADDR: u32 = 0xa440_0000;
+pub const FPGA_USB_DEV1_MEM_ADDR: u32 = 0xa450_0000;
+
 pub const FPGA_MEMORY_MAP: McuMemoryMap = McuMemoryMap {
     rom_offset: 0xb004_0000,
     rom_size: 128 * 1024,
