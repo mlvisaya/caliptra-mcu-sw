@@ -212,6 +212,14 @@ pub extern "C" fn rom_entry() -> ! {
                         as *const usb_dev0_mem::regs::UsbDev0Mem,
                 )
             };
+            // Diagnostic guard: at least 5 ms for core clocks up to 1 GHz.
+            const USB3320_STARTUP_DELAY_CYCLES: u64 = 5_000_000;
+            let startup_cycle = caliptra_mcu_romtime::mcycle();
+            while caliptra_mcu_romtime::mcycle().wrapping_sub(startup_cycle)
+                < USB3320_STARTUP_DELAY_CYCLES
+            {
+                core::hint::spin_loop();
+            }
             let mut usb_driver = LpcipUsbDriver::new(usb_regs, usb_memory);
             usb_driver.dump_registers();
             let result = usb_driver.init_and_enumerate();
