@@ -2367,6 +2367,7 @@ name = "caliptra-mcu-runtime-fpga"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "caliptra-api",
  "caliptra-mcu-capsules-emulator",
  "caliptra-mcu-capsules-runtime",
  "caliptra-mcu-components",
@@ -2377,6 +2378,7 @@ dependencies = [
  "caliptra-mcu-external-otp-emulator",
  "caliptra-mcu-flash-ctrl-fpga",
  "caliptra-mcu-flash-driver",
+ "caliptra-mcu-hw-revision",
  "caliptra-mcu-i3c-driver",
  "caliptra-mcu-mbox-driver",
  "caliptra-mcu-platforms-common",
@@ -2558,23 +2560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "caliptra-mcu-test-fw-mbox-ownership"
-version = "0.1.0"
-dependencies = [
- "caliptra-drivers",
- "caliptra-mcu-hw-revision",
- "caliptra-mcu-registers-generated",
- "caliptra-mcu-rom-common",
- "caliptra-mcu-romtime",
- "caliptra-mcu-test-harness",
- "caliptra-registers",
- "caliptra-test-harness",
- "cfg-if",
- "tock-registers",
- "zerocopy",
-]
-
-[[package]]
 name = "caliptra-mcu-test-fw-otp-blank-check"
 version = "0.1.0"
 dependencies = [
@@ -2716,7 +2701,6 @@ dependencies = [
  "caliptra-mcu-registers-generated",
  "caliptra-mcu-rom-common",
  "caliptra-mcu-romtime",
- "caliptra-mcu-test-fw-mbox-ownership",
  "caliptra-mcu-testing-common",
  "caliptra-mcu-xtask",
  "caliptra-registers",
@@ -2967,14 +2951,6 @@ dependencies = [
  "sha2",
  "sha3 0.10.8",
  "zerocopy",
-]
-
-[[package]]
-name = "caliptra-test-harness"
-version = "0.1.0"
-dependencies = [
- "caliptra-drivers",
- "cfg-if",
 ]
 
 [[package]]

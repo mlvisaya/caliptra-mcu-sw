@@ -83,17 +83,3 @@ pub const CPTRA_REGISTERED_FW: &[&FwId] = &[
     &caliptra_builder::firmware::hw_model_tests::MCU_HITLESS_UPDATE_FLOW,
     &caliptra_builder::firmware::driver_tests::AXI_BYPASS,
 ];
-
-pub const MBOX_OWNERSHIP_MCU: FwId = FwId {
-    crate_name: "caliptra-mcu-test-fw-mbox-ownership",
-    bin_name: "caliptra-mcu-test-fw-mbox-ownership",
-    fw_type: FirmwareType::Source { features: &["mcu"] },
-};
-
-pub const MBOX_OWNERSHIP_CORE: FwId = FwId {
-    crate_name: "caliptra-mcu-test-fw-mbox-ownership",
-    bin_name: "caliptra-mcu-test-fw-mbox-ownership-core",
-    fw_type: FirmwareType::Source {
-        features: &["core", "riscv", "emu"],
-    },
-};

@@ -35,7 +35,6 @@ members = [
     "hw/model/test-fw/hitless-update-flow",
     "hw/model/test-fw/lc-ctrl",
     "hw/model/test-fw/mailbox-responder",
-    "hw/model/test-fw/mbox-ownership",
     "hw/model/test-fw/otp-blank-check",
     "hw/model/test-fw/otp-scramble-check",
     "coverage",
@@ -298,7 +297,6 @@ caliptra-mcu-test-fw-exception-handler = { path = "hw/model/test-fw/exception-ha
 caliptra-mcu-test-fw-hitless-update-flow = { path = "hw/model/test-fw/hitless-update-flow" }
 caliptra-mcu-test-fw-lc-ctrl = { path = "hw/model/test-fw/lc-ctrl" }
 caliptra-mcu-test-fw-mailbox-responder = { path = "hw/model/test-fw/mailbox-responder" }
-caliptra-mcu-test-fw-mbox-ownership = { path = "hw/model/test-fw/mbox-ownership" }
 caliptra-mcu-test-fw-otp-blank-check = { path = "hw/model/test-fw/otp-blank-check" }
 caliptra-mcu-test-fw-otp-scramble-check = { path = "hw/model/test-fw/otp-scramble-check" }
 caliptra-mcu-test-fw-sw-digest-lock = { path = "hw/model/test-fw/sw-digest-lock" }

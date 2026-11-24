@@ -141,6 +141,9 @@ mod test {
         pub lifecycle_controller_state: Option<caliptra_mcu_romtime::LifecycleControllerState>,
         /// Override the emulator host's requester ID for direct Core commands.
         pub caliptra_soc_axi_user: Option<u32>,
+        /// Override FPGA Core DMA and its matching MCU SRAM-config AXI user.
+        #[cfg(feature = "fpga_realtime")]
+        pub caliptra_dma_axi_user: Option<u32>,
         pub vendor_pqc_type: Option<caliptra_image_types::FwVerificationPqcKeyType>,
         /// Assert the debug intent strap.
         pub debug_intent: bool,
@@ -193,6 +196,8 @@ mod test {
                 active_i3c1: false,
                 lifecycle_controller_state: None,
                 caliptra_soc_axi_user: None,
+                #[cfg(feature = "fpga_realtime")]
+                caliptra_dma_axi_user: None,
                 vendor_pqc_type: Some(caliptra_image_types::FwVerificationPqcKeyType::LMS),
                 debug_intent: false,
                 prod_dbg_unlock_keypairs: Vec::new(),
@@ -933,7 +938,7 @@ mod test {
             params.seeded_log_entries,
         );
 
-        caliptra_mcu_hw_model::new(InitParams {
+        let init_params = InitParams {
             fuses: Fuses {
                 fuse_pqc_key_type: params.vendor_pqc_type.map(|t| t as u32).unwrap_or(0),
                 vendor_pk_hash,
@@ -971,8 +976,21 @@ mod test {
             active_i3c1: params.active_i3c1,
             use_strap_secrets: params.use_strap_secrets,
             ..Default::default()
-        })
-        .unwrap()
+        };
+        #[cfg(feature = "fpga_realtime")]
+        if let Some(user) = params.caliptra_dma_axi_user {
+            use tock_registers::interfaces::Writeable;
+
+            let mut hw = caliptra_mcu_hw_model::new_unbooted(init_params).unwrap();
+            hw.base.set_subsystem_reset(true);
+            thread::sleep(Duration::from_micros(1));
+            hw.base.wrapper.regs().dma_axi_user.set(user);
+            hw.base.wrapper.regs().sram_config_user.set(user);
+            hw.base.set_subsystem_reset(false);
+            hw.boot().unwrap();
+            return hw;
+        }
+        caliptra_mcu_hw_model::new(init_params).unwrap()
     }
 
     pub(crate) fn write_valid_partition_table_for_runtime_flash_load(flash: &mut Vec<u8>) {

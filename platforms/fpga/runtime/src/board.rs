@@ -1153,6 +1153,15 @@ pub unsafe fn main() {
     #[allow(unused_mut, unused_assignments)]
     let mut exit: Option<u32> = None;
 
+    #[cfg(any(
+        feature = "test-mcu-mbox-sram-denied",
+        feature = "test-mcu-mbox-sram-return"
+    ))]
+    {
+        exit =
+            crate::tests::mcu_mbox_ownership_test::run(cfg!(feature = "test-mcu-mbox-sram-denied"));
+    }
+
     #[cfg(feature = "test-handoff")]
     {
         debug!("Executing test-handoff");

@@ -1,0 +1,411 @@
+# Sanitized VCK190 test log, 2026-11-24
+# UDS seed, field entropy, and obfuscation-key values are redacted.
+
+running 1 test
+test test_mcu_mbox_sram_ownership::test_mcu_mailbox_sram_denies_mcu_access_while_core_spins ... ModelFpgaRealtime::new_unbooted
+Starting base model
+AXI reset
+Writing Caliptra ROM
+Writing MCU ROM
+new_unbooted
+Setting input wires 0 0
+Set itrng divider
+Set deobf key
+Putting subsystem into reset
+Provisioning lifecycle partition (State: test_unlocked0).
+Provisioning SECRET_LC_TRANSITION partition.
+Provisioning SW_TEST_UNLOCK partition.
+Provisioning SW_MANUF partition.
+Provisioning UDS seed in FPGA test fuse slots.
+Setting UDS seed to [REDACTED]
+Provisioning field entropy in FPGA test fuse slot.
+Setting field entropy to [REDACTED]
+Setting vendor public key hash to [0x77, 0xa8, 0x7c, 0xb1, 0xcc, 0x57, 0x66, 0x66, 0x92, 0xe6, 0x00, 0xd1, 0xb6, 0x06, 0x72, 0x6c, 0xb6, 0x5c, 0x99, 0x0c, 0xc9, 0xc6, 0x92, 0x89, 0x72, 0xce, 0xef, 0xba, 0x41, 0x54, 0xf0, 0x8a, 0x41, 0xff, 0xe1, 0xde, 0x87, 0xc1, 0xdf, 0x5a, 0xb4, 0xed, 0xe4, 0xe1, 0x09, 0xd9, 0xb2, 0xd3]
+Setting vendor public key pqc type to LMS
+Setting owner public key hash to [0x00; 48]
+Setting owner revocations ecc=0x0 lms=0x0 mldsa=0x0
+Setting runtime FW SVN to [0x00; 16]
+Setting SoC manifest SVN to [0x00; 16]
+Provisioning CPTRA_SS_LOCK_HEK_PROD_0 partition.
+Burning fuse for SOC MAX SVN 128
+Clearing fifo
+Clearing Caliptra logs
+Clearing MCU logs
+Clearing output and exit status
+AXI user written 1
+Writing MCU reset vector
+Taking subsystem out of reset
+Using hardware-model ModelFpgaRealtime
+InitParamsSummary {
+    rom_sha384: "c465e6ab09e4e2d5521742da1a03190e84b947138604fa9b98931062a8ad35cb3563343a5a3b418964dc4ad7b2b34ba9",
+    obf_key: [REDACTED]
+}
+Setting: MCI generic input wires: [00000000, c0000000]
+Loading firmware for I3C streaming boot
+Setting recovery images to BMC
+     10,237 UART: FPGA MCU ROM
+     12,488 UART: [mcu-rom] Starting FPGA MCU ROM
+     17,746 UART: [mcu-rom] Hello from ROM
+     21,960 UART: [mcu-rom] Device lifecycle: Unprovisioned
+     28,922 UART: [mcu-rom] MCI generic input wires[0]: 00000000
+     36,877 UART: [mcu-rom] MCI generic input wires[1]: C0000000
+     44,609 UART: [mcu-rom] MCI RESET_REASON: 0x00000000
+     51,109 UART: [mcu-rom] Cold boot detected
+     55,909 UART: [mcu-rom] Starting cold boot flow at time 15474
+     63,783 UART: [mcu-rom] Active I3C core for recovery: 0
+     70,554 UART: [mcu-rom] Setting Caliptra boot go
+     76,271 UART: [mcu-lcc] Initializing Lifecycle controller...
+     83,952 UART: [mcu-lcc] Lifecycle state: 00000001 (count 1)
+Done starting MCU
+I3C controller initializing
+XI3C HW version = 1000100
+XI3C: enabling IBI
+Control register after enabling IBI: 8
+XI3C: Enable set to 9
+XI3C: Broadcast CCC DISEC
+XI3C: Acknowledge received
+XI3C: Broadcast CCC ENEC
+XI3C: Acknowledge received
+XI3C: Broadcast CCC RSTDAA
+XI3C: Acknowledge received
+XI3C: Broadcast CCC ENTDAA
+XI3C: Acknowledged
+XI3C: Controller: Assigning dynamic address 0x8
+XI3C: cur_device_count = 0
+XI3C: Controller received BCR: 36
+XI3C: Controller received DCR: cc
+XI3C: Updating BCR (index 0) for device 3608
+I3C controller finished initializing
+Starting recovery flow (BMC)
+     91,494 UART: Lifecycle controller initialization done
+Finished booting
+    117,074 UART: [mcu-rom-otp] Initializing OTP controller...
+    125,060 UART: [mcu-rom-otp] Setting check timeout to 1048576
+    133,231 UART: [mcu-rom-otp] Enabling consistency check period
+    141,572 UART: [mcu-rom-otp] Enabling integrity check period
+    149,227 UART: [mcu-rom-otp] Disabling check modifications
+    156,954 UART: [mcu-rom-otp] Done init
+    161,326 UART: [mcu-rom] OTP initialized
+    165,625 UART: [mcu-rom] Configurating Caliptra watchdog timers for streaming boot: 800000000 800000000
+    181,380 UART: [mcu-rom] Initializing I3C
+    186,208 UART: [mcu-rom-i3c] HCI version: 120
+    191,625 UART: [mcu-rom-i3c] Set TTI RESET_CONTROL: 0000003F
+    199,275 UART: [mcu-rom-i3c] Initialize timing registers
+    206,730 UART: [mcu-rom-i3c] Timing registers t_r: 0, t_f: 0, t_hd_dat: 0, t_su_dat: 0, t_high: 0, t_low: 0, t_hd_sta: 0, t_su_sta: 0, t_su_sto: 0, t_free: 200
+    231,726 UART: [mcu-rom-i3c] Setup HCI queue thresholds
+    239,004 UART: [mcu-rom-i3c] Setting main target DCR to cc
+    246,360 UART: [mcu-rom-i3c] Enable the target transaction interface
+    256,161 UART: [mcu-rom-i3c] STBY_CR_CONTROL: 8000d010
+    262,926 UART: [mcu-rom-i3c] STBY_CR_CAPABILITIES: 7000
+    270,199 UART: [mcu-rom-i3c] Setting static address to 3a
+    277,771 UART: [mcu-rom-i3c] Setting virtual device static address to 3b
+    287,578 UART: [mcu-rom-i3c] Set TTI queue thresholds
+    294,554 UART: [mcu-rom-i3c] TTI queue thresholds: 01000101
+    302,052 UART: [mcu-rom-i3c] TTI data buffer thresholds ctrl: 01010101
+    311,937 UART: [mcu-rom-i3c] Reset indirect fifo ctrl
+    318,543 UART: [mcu-rom-i3c] Enable PHY to the bus
+    325,215 UART: [mcu-rom] Waiting for Caliptra to be ready for fuses: true
+    335,179 UART: [mcu-rom] Writing fuses to Caliptra
+    341,711 UART: [mcu-rom] Setting Caliptra mailbox user 0 to 00000001
+    350,922 UART: [mcu-rom] Locking Caliptra mailbox user 0
+    358,346 UART: [mcu-rom] Setting Caliptra mailbox user 1 to 00000002
+    367,555 UART: [mcu-rom] Locking Caliptra mailbox user 1
+    374,977 UART: [mcu-rom] Setting fuse user
+    379,572 UART: [mcu-rom] Locking fuse user
+    384,609 UART: [mcu-rom] Setting TRNG user
+    389,576 UART: [mcu-rom] Locking TRNG user
+    394,662 UART: [mcu-rom] Setting DMA user to 00000002
+    401,272 UART: [mcu-rom] Populating fuses
+    406,089 UART: [mcu-fuse-write] Setting UDS/FE base address to 48
+    414,858 UART: [mcu-fuse-write] Setting UDS/FE DAI idle bit offset to 30, OTP status reg offset to 16, and direct access cmd reg offset to 128
+    436,947 UART: [mcu-fuse-write] Selected vendor PK slot 0
+    444,521 UART: [mcu-fuse-write] Setting vendor PQC type to 3
+    731,804 UART: [mcu-fuse-write] Setting prod debug unlock PK hash bank offset to 480, count 8
+    822,807 UART: [mcu-rom] Writing handoff table (size 260) to DCCM at 0x50003c00
+    834,073 UART: [mcu-rom] Configuring MCU mailbox AXI users
+    841,434 UART: [mcu-rom] Setting MCI mailbox 0 user 0 to 00000001
+    850,569 UART: [mcu-rom] Setting MCI mailbox 0 user 1 to 00000002
+    859,333 UART: [mcu-rom] Setting MCI mailbox 1 user 0 to 00000001
+    868,096 UART: [mcu-rom] Setting MCI mailbox 1 user 1 to 00000002
+    876,862 UART: [mcu-rom] Setting SS_CONFIG_DONE_STICKY to lock configuration
+    887,633 UART: [mcu-rom] Setting SS_CONFIG_DONE
+    893,347 UART: [mcu-rom] Verifying production debug unlock PK hashes
+  1,192,569 UART: [mcu-rom] Prod debug unlock PK hash verification passed
+  1,202,123 UART: [mcu-rom] Verifying MCU mailbox AXI users
+  1,209,562 UART: [mcu-rom] MCU mailbox AXI user verification passed
+  1,218,332 UART: [mcu-rom] Setting Caliptra fuse write done
+  1,225,911 UART: [mcu-rom] Waiting for Caliptra Core boot FSM to be DONE
+  1,235,424 UART: [mcu-rom] Waiting for Caliptra to be ready for mbox
+  1,585,636 UART: 
+  1,585,868 UART: Running Caliptra ROM ...
+  1,590,026 UART: 
+  2,818,448 UART: [state] WD Timer not started. Device not locked for debugging
+  2,829,007 UART: [kat] AES-GCM
+  2,846,196 UART: [kat] KDF-CMAC
+  2,878,239 UART: [state] LifecycleState = Unprovisioned
+  2,884,849 UART: [state] DebugLocked = No
+  2,889,375 UART: [state] WD Timer not started. Device not locked for debugging
+  2,899,907 UART: [kat] SHA2-256
+  3,218,171 UART: ROM Digest: 46D5AFA94E549AA26882325A3A20F1A5447C7863BDDDB040F568E7D4FFDE224A
+  3,231,211 UART: [kat] ++
+  3,232,983 UART: [kat] sha1
+  3,237,273 UART: [kat] SHA2-256
+  3,240,010 UART: [kat] SHA2-384
+  3,246,746 UART: [kat] SHA2-512
+  3,254,811 UART: [kat] SHA2-512-ACC
+  3,258,181 UART: [kat] SHAKE-256
+  3,261,450 UART: [kat] CSRNG
+  3,274,399 UART: [kat] ECC-384
+  5,730,561 UART: [kat] ECDH
+  6,454,018 UART: [kat] HMAC-384Kdf
+  6,467,372 UART: [kat] HMAC-512Kdf
+  6,480,700 UART: [kat] HKDF-384
+  6,512,587 UART: [kat] HKDF-512
+  6,545,530 UART: [kat] AES-GCM
+  6,566,929 UART: [kat] KDF-CMAC
+  6,581,688 UART: [kat] LMS
+  7,044,980 UART: [kat] MLDSA87
+  7,870,299 UART: [kat] --
+  7,873,510 UART: [cold-reset] ++
+  7,883,874 UART: [idev] ++
+  7,885,424 UART: [idev] CDI.KEYID = 6
+  7,888,984 UART: [idev] ECC SUBJECT.KEYID = 7, MLDSA SUBJECT.KEYID = 8
+  7,898,572 UART: [idev] UDS.KEYID = 0
+  7,910,120 UART: [idev] Erasing UDS.KEYID = 0
+ 10,774,051 UART: [idev] Sha1 KeyId Algorithm
+ 10,811,677 UART: [idev] Sha1 KeyId Algorithm
+ 11,171,572 UART: [idev] --
+ 11,195,353 UART: [ldev] ++
+ 11,196,901 UART: [ldev] CDI.KEYID = 6
+ 11,200,460 UART: [ldev] ECC SUBJECT.KEYID = 5, MLDSA SUBJECT.KEYID = 4
+ 11,210,046 UART: [ldev] ECC AUTHORITY.KEYID = 7, MLDSA AUTHORITY.KEYID = 8
+ 11,219,966 UART: [ldev] FE.KEYID = 1
+ 11,223,749 UART: [ldev] Deriving DOT_STABLE_IDEV.KEYID = 0
+ 11,230,805 UART: [ldev] Erasing FE.KEYID = 1
+ 11,235,775 UART: [ldev] Deriving DOT_STABLE_LDEV.KEYID = 1
+ 14,136,535 UART: [ldev] Signing Cert ECC AUTHORITY.KEYID = 7
+ 15,912,425 UART: [ldev] Signing Cert MLDSA AUTHORITY.KEYID = 8
+ 16,139,225 UART: [ldev] --
+ 16,176,399 UART: [fwproc] Wait fo[mcu-rom] Caliptr Commands...
+ 16,183,633 UART: [fra is ready for wproc] Recv commmailbox commandsand 0x434d5247
+ 16,194,048 UART: 
+ 16,223,921 UART: [fwproc] Recv command 0x434d5247
+ 16,266,646 UART: [fwproc] Recv command 0x434d5247
+ 16,423,563 UART: [mcu-rom] Sending RI_DOWNLOAD_FI[fwproc] Recv coRMWARE command
+ 16,434,071 UART: mmand 0x52494644[mcu-rom] Waitin
+ 16,439,346 UART: [fwproc] Compleg for MCU firmwating RI_DOWNLOADre to be ready
+ 16,451,575 UART: _FIRMWARE command
+ 16,454,678 UART: [fwproc] Downloading image from RRI to MCU SRAM
+[emulator bmc recovery] Recovery state transition: ReadProtCap -> ReadDeviceStatus
+ 16,462,905 UART: [dma-recovery] Requesting recovery image 0
+ 16,472,040 UART: [dma-recovery] Set device status 3
+[emulator bmc recovery] Recovery state transition: ReadDeviceStatus -> WaitForRecoveryStatus
+[emulator bmc recovery] Sending recovery image 0
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryStatus -> WaitForRecoveryPending
+Recovery image available; writing blocks
+Writing Indirect fifo ctrl: [0, 1, 40, e1, 0, 0]
+I3C core reported length: 57664
+ 16,563,913 UART: [dma-recovery] Payload available, 230656 bytes
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryPending -> Activate
+ 32,855,625 UART: [fwproc] Received image from the Recovery Interface of size 230656 bytes
+ 44,497,982 UART: [fwproc] Setting device recovery status to 0x1, image index 0x1, device status 0x3
+ 44,514,133 UART: [fwproc] Img verified ecc=0 LMS=0 svn=0 fuse_svn=0
+[emulator bmc recovery] Recovery state transition: Activate -> WaitForRecoveryStatus
+ 44,583,415 UART: [fwproc] Load FMC at address 0x40000000 len 30808
+[emulator bmc recovery] Sending recovery image 1
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryStatus -> WaitForRecoveryPending
+Recovery image available; writing blocks
+Writing Indirect fifo ctrl: [0, 1, fa, 1d, 0, 0]
+I3C core reported length: 7674
+ 44,802,533 UART: [fwproc] Load Runtime at address 0x40008000 len 182836
+ 46,089,947 UART: [fwproc] Initializing chain, length 128 (max 128)
+ 47,266,327 UART: [fwproc] Chain initialized
+ 47,270,844 UART: [afmc] ++
+ 50,261,846 UART: [afmc] Signing Cert ECC AUTHORITY.KEYID = 5
+ 52,104,262 UART: [afmc] Signing Cert MLDSA AUTHORITY.KEYID = 4
+ 52,434,698 UART: [afmc] --
+ 52,448,712 UART: [cold-reset] --
+ 52,451,972 UART: [state] Locking Datavault
+ 52,458,055 UART: [exit] Launching FMC @ 0x40000000
+ 52,517,739 UART: 
+ 52,517,967 UART: Running Caliptra FMC ...
+ 52,522,122 UART: 
+ 52,522,316 UART: [state] CFI Enabled
+ 52,579,990 UART: [fht] FMC Alias ECC Private Key: 7
+ 52,586,026 UART: [fht] FMC Alias MLDSA Key Pair Seed KV Slot: 8
+ 54,567,734 UART: [alias rt] Extend RT PCRs
+ 54,572,986 UART: [alias rt] Extend RT PCRs Done
+ 54,578,038 UART: [alias rt] Lock RT PCRs
+ 54,582,417 UART: [alias rt] Lock RT PCRs Done
+ 54,587,537 UART: [fht] FMC Alias ECC Private Key: 7
+ 54,593,548 UART: [fht] FMC Alias MLDSA Key Pair Seed KV Slot: 8
+ 54,639,997 UART: [alias rt] Derive CDI
+ 54,643,727 UART: [alias rt] Store it in slot 0x4
+ 54,649,297 UART: [alias rt] Derive Key Pair
+ 54,654,119 UART: [alias rt] Store ECC priv key in slot 0x5 and MLDSA key pair seed in slot 0x9
+ 57,322,945 UART: [alias rt] Derive Key Pair - Done
+ 57,384,014 UART: [alias rt] Signing ECC Cert with AUTHORITY.KEYID = 7
+ 59,092,945 UART: [alias rt] Locking ECC AUTHORITY.KEYID = 7 & FMC CDI = 6
+ 59,102,667 UART: [alias rt] ECC PUB.X = CD6F25771CB3621D62C3BA84DF837385089C32141116CE0F642524B66272FA0CDADAC8CB488E58A1118658758947C54D
+ 59,123,568 UART: [alias rt] ECC PUB.Y = DDA99A1F19F984F98AF6B385E36A2C415922833A74BA785E5F86EDE448F50F026B1A18DCFD4F1E0FFD1BFFEF685FFA25
+ 59,144,205 UART: [alias rt] ECC SIG.R = 92081984E8A38803B34B51E36E1294E9E57C6B43865E62D82371FE61CD9A52139628EA7C05CB713DA9838068BC3F2210
+ 59,165,112 UART: [alias rt] ECC SIG.S = 52AC6F97314ED69DF63D5B2215E04AFD0275488ACBC548B0D67D08A10DDA8A07CCEC3433828B985959BD883DFCFFC858
+ 60,111,377 UART: [alias rt] Signing MLDSA Cert with AUTHORITY.KEYID = 8
+ 60,441,730 UART: [alias rt] Locking MLDSA AUTHORITY.KEYID = 8 & FMC CDI = 6
+ 60,496,560 UART: Caliptra RT
+ 60,498,407 UART: [kat] AES-ECB
+ 60,504,745 UART: [kat] AES-CBC
+ 60,512,675 UART: [kat] AES-CTR
+ 60,522,369 UART: [kat] AES-CMAC
+ 60,529,547 UART: [kat] MLKEM1024
+ 60,733,752 UART: [rt] OCP LOCK Unsupported
+ 61,107,896 UART: [dma-recovery] Requesting recovery image 1
+ 61,115,137 UART: [dma-recovery] Set device status 3
+ 61,121,156 UART: [dma-recovery] Payload available, 30696 bytes
+ 63,430,144 UART: [dma-recovery] Waiting for activation
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryPending -> Activate
+ 68,817,694 UART: [dma-recovery] Requesting recovery image 2
+ 68,826,748 UART: [dma-recovery] Set device status 3
+[emulator bmc recovery] Recovery state transition: Activate -> WaitForRecoveryStatus
+[emulator bmc recovery] Sending recovery image 2
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryStatus -> WaitForRecoveryPending
+Recovery image available; writing blocks
+Writing Indirect fifo ctrl: [0, 1, 0, 64, 0, 0]
+I3C core reported length: 25600
+ 69,070,646 UART: [dma-recovery] Payload available, 102400 bytes
+[emulator bmc recovery] Recovery state transition: WaitForRecoveryPending -> Activate
+ 77,443,036 UART: [rt] Verifying MCU digest: 0181BE79FCDDDB0E86DB17648AD168595359BFB5D6D08C64E2A47A390147DBCDE034C56E7C72067A0E3525FDC2598DF1
+ 77,471,868 UART: [mcu-rom] Firmwa[rt] Disable entre is ready
+ 77,478,938 UART: [mcuropy source
+ 77,481,659 UART: [rt]-rom] Firmware l RT listening fooad detected
+ 77,489,284 UART: [mcr mailbox commanu-rom] Waiting fds...
+ 77,497,921 UART: or Caliptra RT to be ready for runtime mailbox commands
+ 77,507,349 UART: [mcu-fuse-write] Locking vendor PK hash slots from index 0
+ 77,646,860 UART: [rt] Received command=0x434d5349 (CMSI), len=4108
+ 78,009,259 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 78,389,990 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 78,788,215 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 79,205,623 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 79,640,438 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 80,093,928 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 80,565,632 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 81,054,920 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 81,562,781 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 82,088,870 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 82,632,628 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 83,194,787 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 83,775,279 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 84,373,402 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 84,990,084 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 85,624,947 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 86,278,415 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 86,949,911 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 87,639,240 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 88,347,339 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 89,072,974 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 89,817,060 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 90,579,687 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 91,361,749 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 92,159,299 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 92,976,381 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 93,811,248 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 94,664,224 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 95,535,596 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 96,424,115 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 97,331,118 UART: [rt] Received command=0x434d5355 (CMSU), len=4304
+ 97,564,819 UART: [rt] Received command=0x434d5346 (CMSF), len=4304
+Recovery complete; device recovery status: 0x3
+ 97,617,720 UART: [mcu-rom] MCU ROM digest: F9C220A995D5461E7486566151D01F94DA8F8A5B45162E2DA2C0AB2DFBCB804CB3E7C8A673A7E0D702E8F2655B1DDE6C
+Boot completed at cycle count 97654766, flow status 11469253
+Resetting I3C controller
+I3C controller initializing
+XI3C HW version = 1000100
+XI3C: enabling IBI
+Control register after enabling IBI: 8
+XI3C: Enable set to 9
+XI3C: Broadcast CCC DISEC
+XI3C: Acknowledge received
+XI3C: Broadcast CCC ENEC
+XI3C: Acknowledge received
+XI3C: Broadcast CCC RSTDAA
+XI3C: Acknowledge received
+XI3C: Broadcast CCC ENTDAA
+XI3C: Acknowledged
+XI3C: Controller: Assigning dynamic address 0x8
+XI3C: cur_device_count = 0
+XI3C: Controller received BCR: 36
+XI3C: Controller received DCR: cc
+XI3C: Updating BCR (index 0) for device 3608
+I3C controller finished initializing
+ 97,640,442 UART: [mcu-rom] MCU ROM expected digest: F9C220A995D5461E7486566151D01F94DA8F8A5B45162E2DA2C0AB2DFBCB804CB3E7C8A673A7E0D702E8F2655B1DDE6C
+ 97,679,094 UART: [mcu-rom] Finished boot-mode-specific initialization
+ 97,688,900 UART: [mcu-rom] Disabling recovery interface
+ 97,695,555 UART: [mcu-rom] Resetting to boot firmware
+ 97,702,275 UART: FPGA MCU ROM
+ 97,704,280 UART: [mcu-rom] Starting FPGA MCU ROM
+ 97,709,879 UART: [mcu-rom] Hello from ROM
+ 97,714,429 UART: [mcu-rom] Device lifecycle: Unprovisioned
+ 97,721,899 UART: [mcu-rom] MCI generic input wires[0]: 00000000
+ 97,729,730 UART: [mcu-rom] MCI generic input wires[1]: C0000000
+ 97,737,944 UART: [mcu-rom] MCI RESET_REASON: 0x00000002
+ 97,744,960 UART: [mcu-rom] Firmware boot reset detected
+ 97,751,601 UART: [mcu-rom] Starting fw boot reset flow
+ 97,758,609 UART: [mcu-rom] Jumping to firmware
+ 97,786,703 UART: [mcu-runtime] Hello from MCU runtime
+ 97,800,549 UART: [mcu-runtime] Set PMP
+ 98,038,585 UART: [mcu-runtime] Enabling PMP
+ 98,043,219 UART: PMP Regions:
+ 98,048,549 UART: PMPRegionList (14 regions, 18/32 kernel PMP entries used):
+ 98,074,622 UART:   Format: [MODE, RWX, LOCK] where:
+ 98,080,667 UART:     MODE: TOR=Top-of-Range, NAPOT=Naturally-Aligned-Power-of-Two
+ 98,091,947 UART:     RWX:  R=Read, W=Write, X=Execute, -=Not-Allowed
+ 98,100,909 UART:     LOCK: LOCK=Locked-to-Machine, USER=User-Accessible
+ 98,110,315 UART:   PMP Entry Layout: User regions (0..31), Kernel regions ((64-N)..63)
+ 98,126,720 UART:   [0]: KernelText(0xa8c00000..0xa8c12000) [TOR, R-X, LOCK]
+ 98,163,272 UART:   [1]: ReadOnly(0xa8c12000..0xa8c1a000) [TOR, R--, LOCK]
+ 98,199,660 UART:   [2]: Data(0xa8c1a000..0xa8c80000) [TOR, RW-, LOCK]
+ 98,234,995 UART:   [3]: Data(0x50000000..0x50004000) [TOR, RW-, LOCK]
+ 98,270,765 UART:   [4]: MachineMMIO(0x60000000+0x10000) [NAPOT, RW-, LOCK]
+ 98,306,356 UART:   [5]: MachineMMIO(0xa4030000+0x1000) [NAPOT, RW-, LOCK]
+ 98,341,491 UART:   [6]: MachineMMIO(0xa8000000+0x1000000) [NAPOT, RW-, LOCK]
+ 98,377,789 UART:   [7]: MachineMMIO(0xa4120000+0x40) [NAPOT, RW-, LOCK]
+ 98,411,806 UART:   [8]: MachineMMIO(0xa4130000+0x800) [NAPOT, RW-, LOCK]
+ 98,446,677 UART:   [9]: MachineMMIO(0xa4060000+0x200) [NAPOT, RW-, LOCK]
+ 98,481,270 UART:   [10]: MachineMMIO(0xa4040000+0x100) [NAPOT, RW-, LOCK]
+ 98,516,713 UART:   [11]: UserMMIO(0xa4010000+0x2000) [NAPOT, RW-, USER]
+ 98,551,965 UART:   [12]: MachineMMIO(0xa4081000+0x1000) [NAPOT, RW-, LOCK]
+ 98,587,969 UART:   [13]: UserMMIO(0xb00c0000+0x40000) [NAPOT, RW-, USER]
+ 98,622,974 UART: 
+ 98,810,026 UART: [mcu-runtime] Set PMP done
+ 98,814,532 UART: [mcu-runtime] Capabilities created
+ 98,820,578 UART: [mcu-runtime] Kernel created
+ 98,825,727 UART: [mcu-runtime] GPIOs assigned
+ 98,830,992 UART: [mcu-runtime] Timers created
+ 98,836,146 UART: [mcu-runtime] MuxAlarm created
+ 98,841,591 UART: [mcu-runtime] VirtualMuxAlarm created
+ 98,848,082 UART: [mcu-runtime] SystickMuxAlarm created
+ 98,854,953 UART: [mcu-runtime] Alarm initialized
+ 98,874,209 UART: [mcu-runtime] Mailbox initialized
+ 98,909,614 UART: [mcu-runtime] Peripherals created
+ 98,916,825 UART: [mcu-runtime] Initializing chip with PIC vector table set to 50003800
+ 99,234,266 UART: [mcu-runtime] Chip initialized
+ 99,243,126 UART: [mcu-runtime] UART initialized
+ 99,291,387 UART: [mcu-runtime] DebugWriter initialized
+ 99,302,491 UART: [mcu-runtime] LowLevelDebugComponent initialized
+ 99,317,668 UART: [mcu-runtime] Console initialized
+ 99,323,559 UART: [mcu-runtime] ProcessPrinter initialized
+ 99,330,611 UART: [mcu-runtime] MCI driver component initialized
+ 99,340,115 UART: [mcu-runtime] MCU Mbox1 SRAM component initialized
+ 99,348,925 UART: [mcu-runtime] OTP component initialized
+ 99,371,897 UART: [mcu-runtime] Peripherals initialized
+ 99,472,012 UART: MCU initialization complete.
+ 99,476,877 UART: Entering main loop.
+100,184,493 UART: [rt] Received command=0x4f574e48 (OWNH), len=12
+103,714,950 UART: [mbox-ownership] mailbox 0 passed (denied-access probe=true)
+104,342,466 UART: [rt] Received command=0x4f574e48 (OWNH), len=12
+107,873,210 UART: [mbox-ownership] mailbox 1 passed (denied-access probe=true)
+* TESTCASE PASSED
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 345 filtered out; finished in 6.20s
+

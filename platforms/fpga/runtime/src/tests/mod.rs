@@ -7,5 +7,10 @@ pub(crate) mod i3c_target_test;
     feature = "test-mctp-capsule-loopback-warm-reset"
 ))]
 pub(crate) mod mctp_test;
+#[cfg(any(
+    feature = "test-mcu-mbox-sram-denied",
+    feature = "test-mcu-mbox-sram-return"
+))]
+pub(crate) mod mcu_mbox_ownership_test;
 #[cfg(feature = "test-get-alarm-expired")]
 pub(crate) mod timer_alarm_test;

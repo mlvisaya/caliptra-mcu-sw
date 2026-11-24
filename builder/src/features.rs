@@ -89,6 +89,9 @@ pub const FPGA_RUNTIME_TEST_FEATURES: &[&str] = &[
     "test-mctp-capsule-loopback-warm-reset",
 ];
 
+pub const LATEST_FPGA_RUNTIME_TEST_FEATURES: &[&str] =
+    &["test-mcu-mbox-sram-denied", "test-mcu-mbox-sram-return"];
+
 /// Release-profile runtime test features (emulator).
 /// These are the subset of tests we run against the release (512 KB SRAM)
 /// firmware to verify it boots and keeps release userspace defmt logs working.

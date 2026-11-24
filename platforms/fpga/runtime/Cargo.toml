@@ -7,6 +7,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+caliptra-api = { workspace = true, optional = true }
 arrayvec.workspace = true
 capsules-core.workspace = true
 capsules-extra.workspace = true
@@ -31,6 +32,8 @@ caliptra-mcu-registers-generated.workspace = true
 caliptra-mcu-romtime.workspace = true
 tock-registers.workspace = true
 
+[build-dependencies]
+caliptra-mcu-hw-revision.workspace = true
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 riscv-csr.workspace = true
@@ -117,6 +120,8 @@ test-mcu-mbox-fips-self-test = ["mcu-mbox-service"]
 test-mcu-mbox-fips-periodic = ["mcu-mbox-service"]
 test-mcu-mbox-soc-requester-loopback = []
 test-mcu-mbox-usermode = ["mcu-mbox-service"]
+test-mcu-mbox-sram-denied = ["dep:caliptra-api"]
+test-mcu-mbox-sram-return = ["dep:caliptra-api"]
 test-mcu-rom-flash-access = []
 test-mcu-svn-gt-fuse = []
 test-mcu-svn-lt-fuse = []

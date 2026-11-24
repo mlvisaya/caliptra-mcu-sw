@@ -380,6 +380,7 @@ pub struct FirmwareBinaries {
     pub caliptra_fw_svn128: Vec<u8>,
     pub caliptra_fw_key2: Vec<u8>,
     pub caliptra_fw_ocp_lock: Vec<u8>,
+    pub caliptra_fw_mbox_ownership: Vec<u8>,
     pub mcu_rom: Vec<u8>,
     pub mcu_runtime: Vec<u8>,
     pub soc_manifest: Vec<u8>,
@@ -405,6 +406,7 @@ impl FirmwareBinaries {
     const CALIPTRA_FW_SVN128_NAME: &'static str = "caliptra_fw_svn128.bin";
     const CALIPTRA_FW_KEY2_NAME: &'static str = "caliptra_fw_key2.bin";
     const CALIPTRA_FW_OCP_LOCK_NAME: &'static str = "caliptra_fw_ocp_lock.bin";
+    const CALIPTRA_FW_MBOX_OWNERSHIP_NAME: &'static str = "caliptra_fw_mbox_ownership.bin";
     const MCU_ROM_NAME: &'static str = "mcu_rom.bin";
     const MCU_RUNTIME_NAME: &'static str = "mcu_runtime.bin";
     const USER_APP_ELF_NAME: &'static str = "user_app_elf.bin";
@@ -450,6 +452,7 @@ impl FirmwareBinaries {
                 Self::CALIPTRA_FW_SVN128_NAME => binaries.caliptra_fw_svn128 = data,
                 Self::CALIPTRA_FW_KEY2_NAME => binaries.caliptra_fw_key2 = data,
                 Self::CALIPTRA_FW_OCP_LOCK_NAME => binaries.caliptra_fw_ocp_lock = data,
+                Self::CALIPTRA_FW_MBOX_OWNERSHIP_NAME => binaries.caliptra_fw_mbox_ownership = data,
                 Self::MCU_ROM_NAME => binaries.mcu_rom = data,
                 Self::MCU_RUNTIME_NAME => binaries.mcu_runtime = data,
                 Self::USER_APP_ELF_NAME => {
@@ -784,51 +787,47 @@ pub fn all_build(args: AllBuildArgs) -> Result<()> {
 
     let latest_fpga = platform == "fpga"
         && crate::hardware_revision()? == caliptra_mcu_hw_revision::HardwareRevision::Latest;
-    let mut mcu_test_firmware = firmware::REGISTERED_FW.to_vec();
-    let mut core_test_firmware = firmware::CPTRA_REGISTERED_FW.to_vec();
-    if latest_fpga {
-        mcu_test_firmware.push(&firmware::MBOX_OWNERSHIP_MCU);
-        core_test_firmware.push(&firmware::MBOX_OWNERSHIP_CORE);
-    }
-    let test_roms: Result<Vec<(PathBuf, String)>> = maybe_into_par_iter(mcu_test_firmware)
-        .map(|fwid| {
-            let target_dir = if cfg!(feature = "parallel-build") {
-                Some(
-                    crate::target_dir()
-                        .join(format!("target-rom-{}-{}", fwid.crate_name, fwid.bin_name)),
-                )
-            } else {
-                None
-            };
-            let bin_path = PathBuf::from(crate::test_rom_build(&CaliptraBuildArgs {
-                platform: Some(platform),
-                fwid: Some(fwid),
-                target_dir,
-                ..Default::default()
-            })?);
+    let test_roms: Result<Vec<(PathBuf, String)>> =
+        maybe_into_par_iter(firmware::REGISTERED_FW.to_vec())
+            .map(|fwid| {
+                let target_dir = if cfg!(feature = "parallel-build") {
+                    Some(
+                        crate::target_dir()
+                            .join(format!("target-rom-{}-{}", fwid.crate_name, fwid.bin_name)),
+                    )
+                } else {
+                    None
+                };
+                let bin_path = PathBuf::from(crate::test_rom_build(&CaliptraBuildArgs {
+                    platform: Some(platform),
+                    fwid: Some(fwid),
+                    target_dir,
+                    ..Default::default()
+                })?);
 
-            let filename = format!("mcu-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
-            Ok((bin_path, filename))
-        })
-        .collect();
+                let filename = format!("mcu-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
+                Ok((bin_path, filename))
+            })
+            .collect();
     let mut test_roms = test_roms?;
 
-    let cptra_test_roms: Result<Vec<(PathBuf, String)>> = maybe_into_par_iter(core_test_firmware)
-        .map(|fwid| {
-            let filename = format!("cptra-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
-            let target_dir = if cfg!(feature = "parallel-build") {
-                crate::target_dir().join(format!("target-cptra-rom-{}", filename))
-            } else {
-                crate::target_dir()
-            };
-            let release_dir = target_dir.join(TARGET).join("release");
+    let cptra_test_roms: Result<Vec<(PathBuf, String)>> =
+        maybe_into_par_iter(firmware::CPTRA_REGISTERED_FW.to_vec())
+            .map(|fwid| {
+                let filename = format!("cptra-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
+                let target_dir = if cfg!(feature = "parallel-build") {
+                    crate::target_dir().join(format!("target-cptra-rom-{}", filename))
+                } else {
+                    crate::target_dir()
+                };
+                let release_dir = target_dir.join(TARGET).join("release");
 
-            std::fs::create_dir_all(&release_dir)?;
-            let bin_path = release_dir.join(crate::revisioned_name(&filename)?);
-            CaliptraBuilder::build_core_rom(*fwid, &bin_path)?;
-            Ok((bin_path, filename))
-        })
-        .collect();
+                std::fs::create_dir_all(&release_dir)?;
+                let bin_path = release_dir.join(crate::revisioned_name(&filename)?);
+                CaliptraBuilder::build_core_rom(*fwid, &bin_path)?;
+                Ok((bin_path, filename))
+            })
+            .collect();
     test_roms.extend(cptra_test_roms?);
 
     // Auto-enable the `release` cargo feature when building with the `release`
@@ -843,7 +842,12 @@ pub fn all_build(args: AllBuildArgs) -> Result<()> {
                 if is_release {
                     crate::features::RELEASE_RUNTIME_TEST_FEATURES.to_vec()
                 } else if platform == "fpga" {
-                    crate::features::FPGA_RUNTIME_TEST_FEATURES.to_vec()
+                    let mut features = crate::features::FPGA_RUNTIME_TEST_FEATURES.to_vec();
+                    if latest_fpga {
+                        features
+                            .extend_from_slice(crate::features::LATEST_FPGA_RUNTIME_TEST_FEATURES);
+                    }
+                    features
                 } else {
                     crate::features::EMULATOR_RUNTIME_TEST_FEATURES.to_vec()
                 }
@@ -1021,6 +1025,19 @@ pub fn all_build(args: AllBuildArgs) -> Result<()> {
         ..Default::default()
     });
     let caliptra_fw_ocp_lock = builder_ocp_lock.get_caliptra_fw()?;
+    let caliptra_fw_mbox_ownership = if latest_fpga
+        && separate_features
+            .iter()
+            .any(|feature| crate::features::LATEST_FPGA_RUNTIME_TEST_FEATURES.contains(feature))
+    {
+        let path = crate::target_dir().join(crate::revisioned_name(
+            FirmwareBinaries::CALIPTRA_FW_MBOX_OWNERSHIP_NAME,
+        )?);
+        CaliptraBuilder::build_mbox_ownership_firmware(&path)?;
+        Some(path)
+    } else {
+        None
+    };
     let flash_image = create_flash_image(FlashImageBuildArgs {
         caliptra_fw_path: Some(caliptra_fw.clone()),
         soc_manifest_path: Some(soc_manifest.clone()),
@@ -1481,6 +1498,14 @@ pub fn all_build(args: AllBuildArgs) -> Result<()> {
         &mut zip,
         options,
     )?;
+    if let Some(path) = caliptra_fw_mbox_ownership {
+        add_to_zip(
+            &path,
+            FirmwareBinaries::CALIPTRA_FW_MBOX_OWNERSHIP_NAME,
+            &mut zip,
+            options,
+        )?;
+    }
     add_to_zip(&mcu_rom, FirmwareBinaries::MCU_ROM_NAME, &mut zip, options)?;
     add_to_zip(
         &PathBuf::from(mcu_runtime),

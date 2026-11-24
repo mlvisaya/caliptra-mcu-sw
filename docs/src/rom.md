@@ -312,15 +312,34 @@ The verification process:
 
 ### MCU Mailbox SRAM Ownership Tests (2.2)
 
-Latest FPGA tests under `test_mcu_mbox_sram_ownership` use a test-only MCU/Core
-ROM pair to exercise both MCU mailbox SRAMs. MCU performs memory and handoff
-operations; simple Core mailbox commands read/write through DMA and return
-ownership through `TARGET_STATUS` or release through `EXECUTE=0`.
-Tests check former-owner access denial, unchanged data after denied writes,
-hardware target-done notification, completion/failure handoff, re-grant status
-clearing and full SRAM zeroization. Run the prebuilt FPGA bundle with nextest
-profile `mcu-mbox-ownership-fpga`. These tests do not implement hitless update,
-external staging ownership or production Core APIs.
+Latest FPGA tests under `test_mcu_mbox_sram_ownership` boot the standard ROMs
+and feature-gated MCU/Core runtimes. The test-only Core command `OWNH`
+(`test-mcu-mbox-ownership`) verifies staged SRAM, signals that it is holding
+ownership, and waits for MCU to resume it through GPIO outside the SRAM.
+The MCU `test-mcu-mbox-sram-denied` runtime attempts reads and writes while
+Core is waiting; denied reads must return zero and writes must leave every
+word unchanged. The `test-mcu-mbox-sram-return` runtime exercises successful
+completion. Both cases verify Core's returned data, target-done notification,
+and MCU read/write access after Core writes terminal `TARGET_STATUS`.
+Both 16 KiB mailboxes are checked in full. GPIO waits are bounded.
+
+The FPGA fixture keeps MCU's Root AXI user at 1 and configures Core DMA and
+the matching MCU SRAM-config user as 2 before boot. Distinct identities are
+required to verify exclusion; the default fixture gives them the same user.
+
+Build a latest FPGA bundle with `--rom-features core_test
+--separate-runtimes --runtime-features
+test-mcu-mbox-sram-denied,test-mcu-mbox-sram-return` and run nextest profile
+`mcu-mbox-ownership-fpga`. The bundle includes
+`caliptra_fw_mbox_ownership.bin`; normal Core firmware does not enable the
+test command. These tests do not implement hitless update, external staging
+ownership, or production Core APIs.
+
+Passing VCK190 logs from 2026-11-24 are included for
+[access denial](../../tests/integration/logs/vck190-mcu-mbox-ownership-20261124/access-denied.log)
+and [ownership return](../../tests/integration/logs/vck190-mcu-mbox-ownership-20261124/ownership-return.log).
+Seed and obfuscation-key values are redacted; key-vault slot identifiers and
+public certificate data are retained.
 
 ### Vendor PK Hash Volatile Lock
 

@@ -10,41 +10,34 @@ fn main() -> Result<()> {
     let action = args.next().ok_or_else(|| anyhow!("missing build action"))?;
     let output = args.next().ok_or_else(|| anyhow!("missing output path"))?;
     let bytes = match action.as_str() {
-        "mbox-ownership-rom" => {
+        "mbox-ownership-firmware" => {
             if caliptra_mcu_builder::hardware_revision()?
                 != caliptra_mcu_hw_revision::HardwareRevision::Latest
             {
-                bail!("Core mailbox ownership fixture requires latest hardware");
+                bail!("Core mailbox ownership test firmware requires latest hardware");
             }
-            let id = caliptra_mcu_builder::firmware::MBOX_OWNERSHIP_CORE;
-            let target = caliptra_mcu_builder::target_dir();
-            let status = std::process::Command::new("cargo")
-                .current_dir(&*caliptra_mcu_builder::PROJECT_ROOT)
-                .args([
-                    "build",
-                    "--locked",
-                    "--target",
-                    caliptra_mcu_builder::TARGET,
-                ])
-                .args([
-                    "--release",
-                    "--no-default-features",
-                    "--features",
-                    "core,riscv,emu",
-                ])
-                .args(["-p", id.crate_name, "--bin", id.bin_name, "--target-dir"])
-                .arg(&target)
-                .status()?;
-            if !status.success() {
-                bail!("Core mailbox ownership fixture compilation failed: {status}");
-            }
-            let elf = std::fs::read(
-                target
-                    .join(caliptra_mcu_builder::TARGET)
-                    .join("release")
-                    .join(id.bin_name),
-            )?;
-            caliptra_builder::elf2rom(&elf)?
+            let app = firmware::REGISTERED_FW
+                .iter()
+                .copied()
+                .find(|id| {
+                    matches!(
+                        id.fw_type,
+                        caliptra_builder::FirmwareType::Source { features }
+                            if features.contains(&"test-mcu-mbox-ownership")
+                    )
+                })
+                .ok_or_else(|| {
+                    anyhow!("Selected Core source lacks the ownership runtime test hook")
+                })?;
+            caliptra_builder::build_and_sign_image(
+                &firmware::FMC_FPGA_WITH_UART,
+                app,
+                ImageOptions {
+                    pqc_key_type: FwVerificationPqcKeyType::LMS,
+                    ..Default::default()
+                },
+            )?
+            .to_bytes()?
         }
         "rom" => {
             let index: usize = args
