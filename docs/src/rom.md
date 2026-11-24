@@ -310,6 +310,18 @@ The verification process:
 6. MCU ROM reads back the `MBOX[0,1]_AXI_USER_LOCK` register values and verifies they match the expected lock status
 7. If any mismatch is detected in either the AXI user values or lock status, MCU ROM reports a fatal error (`ROM_SOC_MCU_MBOX_AXI_USER_VERIFY_FAILED`)
 
+### MCU Mailbox SRAM Ownership Tests (2.2)
+
+Latest FPGA tests under `test_mcu_mbox_sram_ownership` use a test-only MCU/Core
+ROM pair to exercise both MCU mailbox SRAMs. MCU performs memory and handoff
+operations; simple Core mailbox commands read/write through DMA and return
+ownership through `TARGET_STATUS` or release through `EXECUTE=0`.
+Tests check former-owner access denial, unchanged data after denied writes,
+hardware target-done notification, completion/failure handoff, re-grant status
+clearing and full SRAM zeroization. Run the prebuilt FPGA bundle with nextest
+profile `mcu-mbox-ownership-fpga`. These tests do not implement hitless update,
+external staging ownership or production Core APIs.
+
 ### Vendor PK Hash Volatile Lock
 
 The MCU ROM supports locking the selected vendor public key hash slot (and all higher order slots) to prevent post-ROM manipulation. This is controlled by writing to the `VENDOR_PK_HASH_VOLATILE_LOCK` register.

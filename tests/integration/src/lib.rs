@@ -41,6 +41,8 @@ mod test_mctp_spdm_responder_conformance;
 mod test_mctp_vdm_cmds;
 mod test_mctp_vdm_validator;
 mod test_mcu_mbox;
+#[cfg(all(test, feature = "fpga_realtime", hw_rev = "latest"))]
+mod test_mcu_mbox_sram_ownership;
 mod test_ocp_dev_identity_provision_tool;
 mod test_owner_stable_key;
 mod test_pldm_fw_update;

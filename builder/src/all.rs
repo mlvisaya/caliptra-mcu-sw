@@ -782,47 +782,53 @@ pub fn all_build(args: AllBuildArgs) -> Result<()> {
         ..Default::default()
     })?;
 
-    let test_roms: Result<Vec<(PathBuf, String)>> =
-        maybe_into_par_iter(firmware::REGISTERED_FW.to_vec())
-            .map(|fwid| {
-                let target_dir = if cfg!(feature = "parallel-build") {
-                    Some(
-                        crate::target_dir()
-                            .join(format!("target-rom-{}-{}", fwid.crate_name, fwid.bin_name)),
-                    )
-                } else {
-                    None
-                };
-                let bin_path = PathBuf::from(crate::test_rom_build(&CaliptraBuildArgs {
-                    platform: Some(platform),
-                    fwid: Some(fwid),
-                    target_dir,
-                    ..Default::default()
-                })?);
+    let latest_fpga = platform == "fpga"
+        && crate::hardware_revision()? == caliptra_mcu_hw_revision::HardwareRevision::Latest;
+    let mut mcu_test_firmware = firmware::REGISTERED_FW.to_vec();
+    let mut core_test_firmware = firmware::CPTRA_REGISTERED_FW.to_vec();
+    if latest_fpga {
+        mcu_test_firmware.push(&firmware::MBOX_OWNERSHIP_MCU);
+        core_test_firmware.push(&firmware::MBOX_OWNERSHIP_CORE);
+    }
+    let test_roms: Result<Vec<(PathBuf, String)>> = maybe_into_par_iter(mcu_test_firmware)
+        .map(|fwid| {
+            let target_dir = if cfg!(feature = "parallel-build") {
+                Some(
+                    crate::target_dir()
+                        .join(format!("target-rom-{}-{}", fwid.crate_name, fwid.bin_name)),
+                )
+            } else {
+                None
+            };
+            let bin_path = PathBuf::from(crate::test_rom_build(&CaliptraBuildArgs {
+                platform: Some(platform),
+                fwid: Some(fwid),
+                target_dir,
+                ..Default::default()
+            })?);
 
-                let filename = format!("mcu-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
-                Ok((bin_path, filename))
-            })
-            .collect();
+            let filename = format!("mcu-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
+            Ok((bin_path, filename))
+        })
+        .collect();
     let mut test_roms = test_roms?;
 
-    let cptra_test_roms: Result<Vec<(PathBuf, String)>> =
-        maybe_into_par_iter(firmware::CPTRA_REGISTERED_FW.to_vec())
-            .map(|fwid| {
-                let filename = format!("cptra-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
-                let target_dir = if cfg!(feature = "parallel-build") {
-                    crate::target_dir().join(format!("target-cptra-rom-{}", filename))
-                } else {
-                    crate::target_dir()
-                };
-                let release_dir = target_dir.join(TARGET).join("release");
+    let cptra_test_roms: Result<Vec<(PathBuf, String)>> = maybe_into_par_iter(core_test_firmware)
+        .map(|fwid| {
+            let filename = format!("cptra-test-rom-{}-{}.bin", fwid.crate_name, fwid.bin_name);
+            let target_dir = if cfg!(feature = "parallel-build") {
+                crate::target_dir().join(format!("target-cptra-rom-{}", filename))
+            } else {
+                crate::target_dir()
+            };
+            let release_dir = target_dir.join(TARGET).join("release");
 
-                std::fs::create_dir_all(&release_dir)?;
-                let bin_path = release_dir.join(crate::revisioned_name(&filename)?);
-                CaliptraBuilder::build_core_rom(*fwid, &bin_path)?;
-                Ok((bin_path, filename))
-            })
-            .collect();
+            std::fs::create_dir_all(&release_dir)?;
+            let bin_path = release_dir.join(crate::revisioned_name(&filename)?);
+            CaliptraBuilder::build_core_rom(*fwid, &bin_path)?;
+            Ok((bin_path, filename))
+        })
+        .collect();
     test_roms.extend(cptra_test_roms?);
 
     // Auto-enable the `release` cargo feature when building with the `release`

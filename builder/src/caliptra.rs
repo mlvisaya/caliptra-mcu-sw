@@ -1227,6 +1227,17 @@ fn main() -> Result<()> {
     }
 
     pub(crate) fn build_core_rom(id: caliptra_builder::FwId<'static>, path: &Path) -> Result<()> {
+        if id == crate::firmware::MBOX_OWNERSHIP_CORE {
+            let status = Self::core_build_command()?
+                .arg("mbox-ownership-rom")
+                .arg(path)
+                .status()
+                .context("Failed to build Core mailbox ownership test ROM")?;
+            if !status.success() {
+                bail!("Core mailbox ownership ROM build failed: {status}");
+            }
+            return Ok(());
+        }
         let index = caliptra_builder::firmware::REGISTERED_FW
             .iter()
             .position(|registered| **registered == id)

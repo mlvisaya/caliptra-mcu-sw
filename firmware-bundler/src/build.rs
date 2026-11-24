@@ -286,6 +286,8 @@ impl<'a> BuildPass<'a> {
         cmd.arg("rustc")
             .arg("--package")
             .arg(&app.name)
+            .arg("--bin")
+            .arg(&app.name)
             .arg("--target")
             .arg(&self.manifest.platform.tuple)
             .arg("--target-dir")
