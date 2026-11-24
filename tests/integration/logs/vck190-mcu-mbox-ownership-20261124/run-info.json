@@ -1,0 +1,47 @@
+{
+  "run_date": "2026-11-24",
+  "platform": "VCK190",
+  "hardware_revision": "latest (Caliptra 2.2)",
+  "source": {
+    "mcu_base_commit": "9e887a605b286c333d7f4565a23801e8ec7795f3",
+    "core_base_commit": "dd76cbc0efd8bab57e9105bbda40cb3c6e71ea44",
+    "core_published_commit": "ba0cc4a17e9a460fb472c0f35ec70fc7269adeff",
+    "note": "Runs used the runtime-test working-tree changes before committing. The Core tested source tree matches core_published_commit.",
+    "mcu_implementation_commit": "fd375a109fc137a94ed4f904c45193876484a6eb"
+  },
+  "pdi": {
+    "filename": "runtime_8232648.pdi",
+    "sha256": "dca1bfecadce112e601aab7e18b4abc6ffb34f3f93d41f2fbfa59e0af1b3e7b7"
+  },
+  "firmware_bundle_sha256": "ae7b55241eb2cf19ba279d9a6f6c4b42948b92cf29145228ba92a1863146f2e5",
+  "axi_users": {
+    "mcu_root": 1,
+    "core_dma_and_sram_config": 2
+  },
+  "tests": [
+    {
+      "test": "test_mcu_mailbox_sram_denies_mcu_access_while_core_spins",
+      "result": "PASS",
+      "mailboxes": [
+        0,
+        1
+      ],
+      "sram_bytes_per_mailbox": 16384,
+      "duration_seconds": 6.2,
+      "log": "access-denied.log",
+      "redacted_lines": 3
+    },
+    {
+      "test": "test_mcu_mailbox_sram_mcu_access_after_core_completion",
+      "result": "PASS",
+      "mailboxes": [
+        0,
+        1
+      ],
+      "sram_bytes_per_mailbox": 16384,
+      "duration_seconds": 6.08,
+      "log": "ownership-return.log",
+      "redacted_lines": 3
+    }
+  ]
+}

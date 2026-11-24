@@ -136,9 +136,9 @@ Finished booting
   1,217,998 UART: [mcu-rom] Setting Caliptra fuse write done
   1,225,579 UART: [mcu-rom] Waiting for Caliptra Core boot FSM to be DONE
   1,235,566 UART: [mcu-rom] Waiting for Caliptra to be ready for mbox
-  1,585,320 UART: 
+  1,585,320 UART:
   1,585,556 UART: Running Caliptra ROM ...
-  1,589,823 UART: 
+  1,589,823 UART:
   2,817,659 UART: [state] WD Timer not started. Device not locked for debugging
   2,828,107 UART: [kat] AES-GCM
   2,846,167 UART: [kat] KDF-CMAC
@@ -188,7 +188,7 @@ Finished booting
  16,125,315 UART: [ldev] --
  16,163,560 UART: [fwproc] Wait fo[mcu-rom] Caliptr Commands...
  16,170,808 UART: [fra is ready for wproc] Recv commmailbox commandsand 0x434d5247
- 16,181,224 UART: 
+ 16,181,224 UART:
  16,214,760 UART: [fwproc] Recv command 0x434d5247
  16,258,239 UART: [fwproc] Recv command 0x434d5247
  16,415,202 UART: [mcu-rom] Sending RI_DOWNLOAD_FI[fwproc] Recv coRMWARE command
@@ -227,9 +227,9 @@ I3C core reported length: 7674
  52,425,811 UART: [cold-reset] --
  52,429,512 UART: [state] Locking Datavault
  52,434,706 UART: [exit] Launching FMC @ 0x40000000
- 52,494,104 UART: 
+ 52,494,104 UART:
  52,494,360 UART: Running Caliptra FMC ...
- 52,498,518 UART: 
+ 52,498,518 UART:
  52,498,712 UART: [state] CFI Enabled
  52,556,871 UART: [fht] FMC Alias ECC Private Key: 7
  52,562,909 UART: [fht] FMC Alias MLDSA Key Pair Seed KV Slot: 8
@@ -375,7 +375,7 @@ I3C controller finished initializing
  98,496,083 UART:   [11]: UserMMIO(0xa4010000+0x2000) [NAPOT, RW-, USER]
  98,530,927 UART:   [12]: MachineMMIO(0xa4081000+0x1000) [NAPOT, RW-, LOCK]
  98,565,689 UART:   [13]: UserMMIO(0xb00c0000+0x40000) [NAPOT, RW-, USER]
- 98,599,837 UART: 
+ 98,599,837 UART:
  98,786,292 UART: [mcu-runtime] Set PMP done
  98,790,788 UART: [mcu-runtime] Capabilities created
  98,796,836 UART: [mcu-runtime] Kernel created
@@ -408,4 +408,3 @@ I3C controller finished initializing
 ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 345 filtered out; finished in 6.08s
-
